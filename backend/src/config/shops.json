@@ -1,0 +1,17 @@
+[
+  {
+    "shopId": "shop1",
+    "name": "Aligvárom",
+    "apiKey": "${SHOP1_API_KEY}"
+  },
+  {
+    "shopId": "shop2",
+    "name": "Nemsemmi",
+    "apiKey": "${SHOP2_API_KEY}"
+  },
+  {
+    "shopId": "shop3",
+    "name": "Házravaló",
+    "apiKey": "${SHOP3_API_KEY}"
+  }
+]

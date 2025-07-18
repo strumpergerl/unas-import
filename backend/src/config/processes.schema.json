@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "processId",
+      "shopId",
+      "displayName",
+      "feedUrl",
+      "frequency",
+      "currency",
+      "rounding",
+      "convertCurrency",
+      "fieldMapping"
+    ],
+    "properties": {
+      "processId":      { "type": "string" },
+      "shopId":         { "type": "string" },
+      "displayName":    { "type": "string" },
+      "feedUrl":        { "type": "string", "format": "uri" },
+      "frequency":      { "type": "string", "pattern": "^\\d+[smhd]$" },
+      "currency":       { "type": "string", "minLength": 3, "maxLength": 3 },
+      "pricingFormula": { "type": ["string", "null"] },
+      "rounding":       { "type": "integer", "minimum": 1 },
+      "convertCurrency":{ "type": "boolean" },
+      "targetCurrency": { "type": ["string", "null"], "minLength": 3, "maxLength": 3 },
+      "fxProvider":     { "type": ["string", "null"] },
+      "fieldMapping":   {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      }
+    },
+    "additionalProperties": false
+  }
+}

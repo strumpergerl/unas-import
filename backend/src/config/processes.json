@@ -1,0 +1,23 @@
+[
+  {
+    "processId": "importProducts_shop1",
+    "shopId": "shop1",
+    "displayName": "Vevor – Aligvárom szinkron",
+    "feedUrl": "https://ads-feed.s3.us-west-2.amazonaws.com/ads/business/123/vevor-123.xlsx",
+    "frequency": "3h",
+    "currency": "EUR",
+    "pricingFormula": "base*1.20",
+    "rounding": 100,
+    "convertCurrency": true,
+    "targetCurrency": "HUF",
+    "fxProvider": "exchangerate-api",
+    "fieldMapping": {
+      "SKU": "sku",
+      "Product title": "name",
+      "Price": "price",
+      "Inventory quantity": "stock",
+      "Product description": "description",
+      "Image link": "image_url"
+    }
+  }
+]

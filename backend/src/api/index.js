@@ -19,6 +19,23 @@ router.get('/config', (req, res) => {
   res.json({ shops, processes });
 });
 
+// Config mentése (POST)
+router.post('/api/config', (req, res) => {
+  const { processes: newProcesses } = req.body;
+  const fs = require('fs');
+  const path = require('path');
+  const filePath = path.resolve(__dirname, '../config/processes.json');
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(newProcesses, null, 2), 'utf-8');
+    // memóriabeli frissítés
+    processes.length = 0;
+    newProcesses.forEach(p => processes.push(p));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Ütemezés indítása
 scheduleProcesses(processes);
 

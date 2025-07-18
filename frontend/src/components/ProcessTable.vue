@@ -1,12 +1,12 @@
 <template>
   <div>
     <!-- Kereső mező -->
-    <el-input
+    <!-- <el-input
       v-model="search"
       placeholder="Keresés folyamat név vagy ID alapján"
       clearable
       style="width: 300px; margin-bottom: 16px;"
-    />
+    /> -->
 
     <!-- Táblázat testreszabott oszlopokkal -->
     <el-table
@@ -16,26 +16,53 @@
       style="width: 100%"
     >
       <el-table-column
-        prop="displayName"
-        label="Megjelenített név"
-        sortable
-      />
-      <el-table-column
+      width="200"
         prop="processId"
-        label="Process ID"
+        label="ID"
         sortable
       />
       <el-table-column
-        prop="dryRun"
-        label="Dry Run"
-        :formatter="row => row.dryRun ? 'Igen' : 'Nem'"
+        prop="displayName"
+        label="Szinkron folyamat neve"
+        sortable
       />
-      <el-table-column label="Műveletek">
-        <template #default="{ row }">
+      <el-table-column
+        width="100"
+        prop="dryRun"
+        label="Élő mód"
+      >
+        <template #default="scope" >
+            <el-icon style="vertical-align: middle; margin-right: 4px;" size="25">
+              <template v-if="!scope.row.dryRun">
+                <CircleCheckFilled style="color: #67C23A;" />
+              </template>
+              <template v-else>
+                <CircleCloseFilled style="color: #F56C6C;" />
+              </template>
+            </el-icon>
+            {{ !scope.row.dryRun ? 'Igen' : 'Nem' }}
+        </template>
+      </el-table-column>
+      <!-- Műveletek oszlop run gombbal: explicit default slot -->
+      <el-table-column label="Műveletek" width="200">
+        <template #default="scope">
           <RunButton
-            :id="row.processId"
-            @done="onRunComplete"
+            :id="scope.row.processId"
+            @done="onRunComplete(scope.row.processId)"
           />
+          <el-tooltip placement="top">
+            <template #content> Konfiguráció módosítása </template>
+            <el-button @click="$emit('edit', scope.row.processId)" type="info" circle size="large">
+              <el-icon  size="25"><EditPen /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip placement="top">
+            <template #content> Konfiguráció törlése </template>
+            <el-button @click="$emit('delete', scope.row.processId)" type="danger" circle size="large">
+              <el-icon size="25"><Delete /></el-icon>
+            </el-button>
+          </el-tooltip>
+
         </template>
       </el-table-column>
     </el-table>
@@ -85,10 +112,16 @@ export default {
       emit('run-complete', id)
     }
 
-    // Ha keresési kifejezés változik, lapozás vissza az 1. oldalra
     watch(search, () => { currentPage.value = 1 })
 
-    return { search, currentPage, pageSize, filtered, paginatedData, onRunComplete }
+    return {
+      search,
+      currentPage,
+      pageSize,
+      filtered,
+      paginatedData,
+      onRunComplete
+    }
   }
 }
 </script>

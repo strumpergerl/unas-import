@@ -1,8 +1,12 @@
 <template>
-  <button :disabled="loading" @click="run">
-    {{ loading ? 'Futtatás…' : 'Futtatás' }}
-  </button>
+  <el-tooltip placement="top">
+    <template #content> Azonnali indítás </template>
+    <el-button :disabled="loading" @click="run" type="primary" circle size="large">
+      <el-icon size="25"><VideoPlay /></el-icon>
+    </el-button>
+  </el-tooltip>
 </template>
+  
 
 <script>
 import api from '../services/api';

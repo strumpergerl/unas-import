@@ -5,6 +5,13 @@
 </template>
 <script>
 export default {
-  props: ['logs']
+  props: ['logs'],
+  name: 'LogsViewer',
+  setup(props) {
+    // Any additional setup logic can go here
+    return {
+      logs: props.logs
+    }
+  }
 }
 </script>

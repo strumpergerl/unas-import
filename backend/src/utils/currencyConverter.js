@@ -1,4 +1,4 @@
-const processes = require('./config/processes.json');
+const processes = require('../config/processes.json');
 
 /**
  * Átvált egy összeget bármilyen devizából bármilyen devizába.
@@ -6,6 +6,15 @@ const processes = require('./config/processes.json');
  * @param {string} fromCurrency — kiinduló deviza, pl. 'EUR'
  * @param {string} toCurrency — céldeviza, pl. 'HUF'
  */
+const fetchRates = async () => {
+    const rateUpdater = require('./rateUpdater');
+    const { rates } = rateUpdater.getRates();
+    if (!rates || Object.keys(rates).length === 0) {
+        throw new Error('Nincsenek elérhető árfolyamok. Kérjük, frissítse az árfolyamokat.');   
+    }
+    return rates;
+}
+
 async function convertCurrency(amount, fromCurrency, toCurrency) {
     const rates = await fetchRates();
     // If fromCurrency is not provided, use the one from processes.json

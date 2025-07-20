@@ -13,6 +13,7 @@
 			</div>
 		</el-header>
 		<el-main>
+      <ExchangeRates />
 			<el-button type="primary" class="new-process-btn" @click="openForm()"
 				>Új szinkron létrehozása</el-button
 			>
@@ -50,12 +51,13 @@
 	import ShopSelector from './components/ShopSelector.vue';
 	import ProcessTable from './components/ProcessTable.vue';
 	import ProcessForm from './components/ProcessForm.vue';
+  import ExchangeRates from './components/ExchangeRates.vue';
 	import LogsViewer from './components/LogsViewer.vue';
 	import api from './services/api';
 	import axios from 'axios';
 
 	export default {
-		components: { ShopSelector, ProcessTable, LogsViewer, ProcessForm },
+		components: { ShopSelector, ProcessTable, LogsViewer, ProcessForm, ExchangeRates },
 		setup() {
 			const shops = ref([]);
 			const selectedShop = ref(null);

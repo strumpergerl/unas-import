@@ -12,6 +12,7 @@ export default {
   updateConfig: (data) => api.post('/config', data),
   deleteConfig: (id) => api.delete(`/config/${id}`),
   runProcess:  (id) => api.post('/run', { processId: id }),
-  getLogs:     () => api.get('/logs')
+  getLogs:     () => api.get('/logs'),
+  getRates:    () => api.get('/rates')
 };
 

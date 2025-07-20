@@ -13,7 +13,6 @@
     "priceMargin": 20,
     "discount": 10,
     "rounding": 100,
-    "fxProvider": "exchangerate-api",
     "dryRun": false,
     "fieldMapping": {
       "SKU": "sku",
@@ -36,7 +35,6 @@
     "priceMargin": 10,
     "discount": 4,
     "rounding": 100,
-    "fxProvider": "",
     "dryRun": true,
     "fieldMapping": {
       "ez": "AZ"

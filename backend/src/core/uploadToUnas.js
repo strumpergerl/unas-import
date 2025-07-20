@@ -45,7 +45,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
     try {
       console.log(`→ [UNAS] Sending setProduct for SKU: ${rec.sku}`);
-      return
+      
       const setRes = await axios.post(
         `${BASE_URL}/setProduct`,
         setXml,

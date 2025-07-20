@@ -1,50 +1,86 @@
 const Big = require('big.js');
+const { convertCurrency } = require('../utils/currencyConverter');
 
+/**
+ * @param {Array<Object>} records — forrásadatok
+ * @param {Object} processConfig
+ * @param {Object} processConfig.fieldMapping — { forrásMező: célKulcs, … }
+ * @param {string} [processConfig.pricingFormula] — pl. "base * 1.2"
+ * @param {number} [processConfig.rounding] — kerekítési egység, pl. 10
+ * @param {boolean} [processConfig.convertCurrency] — devizakonverzió bekapcsolása
+ * @param {string} [processConfig.targetCurrency] — céldeviza kód, pl. 'EUR'
+ * @returns {Promise<Array<Object>>}
+ */
+async function transformData(records, processConfig) {
+  const {
+    fieldMapping,
+    pricingFormula,
+    rounding = 1,
+    convertCurrency: doConvert = false,
+    targetCurrency = 'USD'
+  } = processConfig;
 
-function transformData(records, processConfig) {
-  const { fieldMapping, pricingFormula, rounding } = processConfig;
-  return records.map(record => {
-    const transformed = { /* más mezők átadása… */ };
+  // Feldolgozás párhuzamosan, Promise-okkal
+  const transformedList = await Promise.all(records.map(async record => {
+    const transformed = {};
 
+    // 1) Általános mező-mapping (kivéve price)
+    for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
+      if (dstKey !== 'price') {
+        transformed[dstKey] = record[srcKey];
+      }
+    }
+
+    // 2) Ár számítása, ha van formula
     if (pricingFormula) {
-      // 1) Megkeressük, melyik forrás-mező tartozik a 'price' kulcshoz
+      // a price-hoz tartozó forrásmező kulcsa
       const baseKey = Object
         .entries(fieldMapping)
-        .find(([, target]) => target === 'price')?.[0];
-      // 2) Először defaultoljuk null/üres esetén '0'-ra
-      let rawPrice = record[baseKey];
-      rawPrice = rawPrice == null || rawPrice === '' ? '0' : String(rawPrice);
-      // 3) Csak számjegyek, pont és kötőjel maradjon meg
-      const cleanPrice = rawPrice.replace(/[^0-9.\-]/g, '') || '0';
-      const basePrice = Big(cleanPrice);
+        .find(([, dst]) => dst === 'price')?.[0];
 
-      // 4) Kivonjuk a pricingFormula operátort és tényezőt
-      const match = pricingFormula.match(/base\s*([*\/+\-])\s*(\d+(?:\.\d+)?)/);
-      if (match) {
-        const [, operator, factorStr] = match;
-        const cleanFactor = (factorStr || '1').replace(/[^0-9.\-]/g, '') || '1';
-        const factor = Big(cleanFactor);
+      // nyers ár letisztítása
+      let raw = record[baseKey];
+      raw = raw == null || raw === '' ? '0' : String(raw);
+      const clean = raw.replace(/[^0-9.\-]/g, '') || '0';
+      let price = Big(clean);
 
-        let price = basePrice;
-        switch (operator) {
+      // 3) pricingFormula alkalmazása (pl. "base * 1.2", vagy "base / 2 + 10")
+      const m = pricingFormula.match(/base\s*([*\/+\-])\s*(\d+(\.\d+)?)/);
+      if (m) {
+        const [, op, factorStr] = m;
+        const factor = Big(factorStr);
+        switch (op) {
           case '*': price = price.times(factor); break;
           case '/': price = price.div(factor); break;
           case '+': price = price.plus(factor); break;
           case '-': price = price.minus(factor); break;
         }
-
-        // 5) Kerekítés half-up a rounding mező szerint
-        const rounded = price
-          .round(0, Big.roundHalfUp)       // először egészekre
-          .div(rounding)                   // osztás a kerekítési egységgel
-          .round(0, Big.roundHalfUp)       // újrakerekítés egészekre
-          .times(rounding);                // visszaszorzás
-        transformed.price = rounded.toString();
       }
+
+      // 4) Devizakonverzió USD-ről céldevizára
+      if (doConvert !== 'HUF') {
+        // convertCurrency visszaadja a konvertált összeget Number-ként
+        const converted = await convertCurrency(price.toNumber(), targetCurrency);
+        price = Big(converted);
+      }
+      else {
+        // HUF esetén csak a számot hagyjuk, de nem konvertálunk
+        price = Big(price.toNumber());
+      }
+      // 5) Kerekítés half-up a megadott egységre
+      const rounded = price
+        .round(0, Big.roundHalfUp)    // egészre
+        .div(rounding)                // egységre oszt
+        .round(0, Big.roundHalfUp)    // újra egész
+        .times(rounding);             // visszaszorz
+
+      transformed.price = rounded.toString();
     }
 
     return transformed;
-  });
+  }));
+
+  return transformedList;
 }
 
 module.exports = transformData;

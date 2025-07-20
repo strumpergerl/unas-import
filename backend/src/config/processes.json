@@ -14,7 +14,7 @@
     "discount": 10,
     "rounding": 100,
     "fxProvider": "exchangerate-api",
-    "dryRun": true,
+    "dryRun": false,
     "fieldMapping": {
       "SKU": "sku",
       "Product title": "name",
@@ -38,9 +38,24 @@
     "discount": 4,
     "rounding": 100,
     "fxProvider": "",
-    "dryRun": false,
+    "dryRun": true,
     "fieldMapping": {
       "ez": "AZ"
     }
+  },
+  {
+    "vat": 27,
+    "processId": "shop1_2025-07-18_20-14-49",
+    "shopId": "shop1",
+    "displayName": "nagyon teszt",
+    "feedUrl": "nagyonteszt",
+    "frequency": "12h",
+    "currency": "EUR",
+    "targetCurrency": "HUF",
+    "pricingFormula": "{basePrice} + {basePrice}",
+    "priceMargin": 0,
+    "discount": 0,
+    "rounding": 100,
+    "fieldMapping": {}
   }
 ]

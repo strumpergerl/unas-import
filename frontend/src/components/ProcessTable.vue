@@ -33,14 +33,14 @@
       >
         <template #default="scope" >
             <el-icon style="vertical-align: middle; margin-right: 4px;" size="25">
-              <template v-if="!scope.row.dryRun">
+              <template v-if="scope.row.dryRun">
                 <CircleCheckFilled style="color: #67C23A;" />
               </template>
               <template v-else>
                 <CircleCloseFilled style="color: #F56C6C;" />
               </template>
             </el-icon>
-            {{ !scope.row.dryRun ? 'Igen' : 'Nem' }}
+            {{ scope.row.dryRun ? 'Igen' : 'Nem' }}
         </template>
       </el-table-column>
       <!-- Műveletek oszlop run gombbal: explicit default slot -->

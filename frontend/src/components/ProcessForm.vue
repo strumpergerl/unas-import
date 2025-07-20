@@ -99,7 +99,7 @@
     <div style="padding: 20px; background: #f5f5f5;">
         <el-form-item style="margin-top: 20px;">
             <el-switch
-                v-model="dryRun"
+                v-model="form.dryRun"
                 size="large"
                 active-text="Élő mód"
                 inactive-text="Teszt mód"
@@ -115,6 +115,7 @@
 
 <script>
 import { reactive, toRefs } from "vue";
+import { ref } from "vue";
 
 
 export default {
@@ -127,7 +128,7 @@ export default {
     const form = reactive({ vat: 27, ...props.initial });
     const mappingKeys = reactive([...Object.keys(form.fieldMapping)]);
     const mappingValues = reactive([...Object.values(form.fieldMapping)]);
-    const dryRun = reactive({ value: form.dryRun || false });
+    const dryRun = ref(form.dryRun || false);
 
     function addMapping() {
       mappingKeys.push("");
@@ -163,8 +164,7 @@ export default {
         removeMapping,
         addMapping,
         submit,
-        shops: props.shops,
-        dryRun: dryRun.value,
+        dryRun,
     };
   },
 };

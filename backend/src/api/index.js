@@ -20,7 +20,7 @@ router.get('/config', (req, res) => {
 });
 
 // Config mentése (POST)
-router.post('/api/config', (req, res) => {
+router.post('/config', (req, res) => {
   const { processes: newProcesses } = req.body;
   const fs = require('fs');
   const path = require('path');
@@ -63,6 +63,7 @@ router.post('/run', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
+    console.error('❌ /api/run hiba:', err)
     logs.push(`Hiba: ${err.message}`);
     res.status(500).json({ error: err.message });
   }

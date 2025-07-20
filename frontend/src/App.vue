@@ -44,6 +44,7 @@ import ProcessTable from './components/ProcessTable.vue'
 import ProcessForm from './components/ProcessForm.vue'
 import LogsViewer from './components/LogsViewer.vue'
 import api from './services/api'
+import axios from 'axios'
 
 export default {
   components: { ShopSelector, ProcessTable, LogsViewer, ProcessForm },
@@ -89,16 +90,17 @@ export default {
       showForm.value = true
     }
 
+
     const saveProcess = async proc => {
-      // mentjük a változásokat
-      const idx = processes.value.findIndex(p => p.processId === proc.processId)
-      if (idx > -1) processes.value.splice(idx, 1, proc)
-      else processes.value.push(proc)
-      // elküldjük a backendnek
-      await api.saveConfig({ shops: shops.value, processes: processes.value })
-      showForm.value = false
-      await loadConfig() // frissítjük a listát mentés után
-    }
+  // lokális lista frissítése
+  const idx = processes.value.findIndex(p => p.processId === proc.processId)
+  if (idx > -1) processes.value.splice(idx, 1, proc)
+  else processes.value.push(proc)
+  // POST a proxy-n keresztül a backend /api/config végpontra
+  await axios.post('/api/config', { processes: processes.value })
+  showForm.value = false
+  loadConfig()
+}
 
     const deleteProcess = async id => {
       processes.value = processes.value.filter(p => p.processId !== id)

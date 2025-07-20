@@ -33,3 +33,5 @@ async function parseData(buffer, feedUrl) {
       throw new Error(`Unsupported extension: ${ext}`);
   }
 }
+
+module.exports = parseData;

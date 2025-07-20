@@ -17,9 +17,19 @@ export default {
   methods: {
     async run() {
       this.loading = true;
-      await api.runProcess(this.id);
-      this.$emit('done', this.id);
-      this.loading = false;
+      try {
+        console.log('Futás indítása folyamat:', this.id);
+        const response = await api.runProcess(this.id)
+        console.log('API válasz:', response)
+        this.$emit('done', this.id)
+      } catch (err) {
+        console.error('API hiba:', err.response?.data || err)
+        this.$message.error(
+          `Hiba a futtatás során: ${err.response?.data?.error || err.message}`
+        )
+      } finally {
+        this.loading = false
+      }
     }
   }
 };

@@ -25,7 +25,6 @@
       "rounding":       { "type": "integer", "minimum": 1 },
       "convertCurrency":{ "type": "boolean" },
       "targetCurrency": { "type": ["string", "null"], "minLength": 3, "maxLength": 3 },
-      "fxProvider":     { "type": ["string", "null"] },
       "fieldMapping":   {
         "type": "object",
         "additionalProperties": { "type": "string" }

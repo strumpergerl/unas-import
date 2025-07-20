@@ -1,35 +1,64 @@
 const axios = require('axios');
-const dotenv = require('dotenv');
-dotenv.config();
+const xml2js = require('xml2js');
+require('dotenv').config();
 
-const UNAS_API_URL = process.env.UNAS_API_URL;
+const API_KEY = process.env.UNAS_API_KEY;
+const BASE_URL = process.env.UNAS_API_URL || 'https://api.unas.eu/shop';
+const parser = new xml2js.Parser();
+const builder = new xml2js.Builder({ headless: true });
 
-/**
- * Feltölti az adatokat az Unas API-ra vagy naplózza, ha dryRun mód van.
- * @param {Array<object>} records - Átalakított rekordok.
- * @param {object} processConfig - A `processes.json`-beli konfiguráció egy eleme.
- * @param {object} shopConfig - A `shops.json`-beli webshop konfiguráció.
- * @returns {Promise<void>}
- */
 async function uploadToUnas(records, processConfig, shopConfig) {
-  const { shopId, dryRun } = processConfig;
-  const apiKey = shopConfig.apiKey;
-  const endpoint = `${UNAS_API_URL}/shops/${shopId}/products`;
-
+  const { dryRun } = processConfig;
   if (dryRun) {
-    console.log(`DRY RUN: Uploading ${records.length} items to ${endpoint}`);
+    console.log(`DRY RUN: Would sync ${records.length} items`);
     console.dir(records, { depth: null });
     return;
   }
 
-  try {
-    const response = await axios.post(endpoint, { items: records }, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    console.log(`Uploaded ${records.length} items. Status: ${response.status}`);
-  } catch (error) {
-    console.error('Error uploading to Unas:', error.response ? error.response.data : error.message);
-    throw error;
+  for (const rec of records) {
+    // 1. Lekérjük létező terméket (opcionális)
+    const getReq = { getProduct: { apiKey: API_KEY, productId: rec.sku } };
+    const getXml = `<?xml version="1.0" encoding="UTF-8"?>
+    ${builder.buildObject(getReq)}`;
+    try {
+      const getRes = await axios.post(
+        `${BASE_URL}/getProduct`,
+        getXml,
+        { headers: { 'Content-Type': 'text/xml' } }
+      );
+      const existing = await parser.parseStringPromise(getRes.data);
+      console.log('Existing product:', existing);
+    } catch (_) {
+      // Ha nincs termék, folytatjuk
+    }
+
+    // 2. Feltöltés vagy frissítés
+    const productNode = {};
+    for (const [src, tgt] of Object.entries(processConfig.fieldMapping)) {
+      productNode[tgt] = rec[src] ?? '';
+    }
+    const setReq = { setProduct: { apiKey: API_KEY, product: productNode } };
+    const setXml = '<?xml version="1.0" encoding="UTF-8"?>\n' + builder.buildObject(setReq);
+
+    // **Debug logok**
+    console.log('→ [UNAS] POST /setProduct XML:\n', setXml);
+
+    try {
+      console.log(`→ [UNAS] Sending setProduct for SKU: ${rec.sku}`);
+      return
+      const setRes = await axios.post(
+        `${BASE_URL}/setProduct`,
+        setXml,
+        { headers: { 'Content-Type': 'text/xml' } }
+      );
+      console.log(`← [UNAS] Response status: ${setRes.status}\n`, setRes.data);
+    } catch (err) {
+      console.error('❌ [UNAS] setProduct hiba, request XML és response:');
+      console.error(setXml);
+      console.error(err.response?.data || err.message);
+      throw err;
+    }
+    console.log(`Product ${rec.sku} synced, status: ${setRes.status}`);
   }
 }
 

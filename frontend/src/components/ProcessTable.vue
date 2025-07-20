@@ -40,7 +40,7 @@
                 <CircleCloseFilled style="color: #F56C6C;" />
               </template>
             </el-icon>
-            {{ scope.row.dryRun ? 'Igen' : 'Nem' }}
+            {{ scope.row.dryRun ? 'Élő' : 'Teszt' }}
         </template>
       </el-table-column>
       <!-- Műveletek oszlop run gombbal: explicit default slot -->

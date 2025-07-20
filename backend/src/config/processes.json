@@ -4,7 +4,7 @@
     "processId": "shop1_2025-01-01_vevor",
     "shopId": "shop1",
     "displayName": "Vevor - Aligvárom szinkron22",
-    "feedUrl": "https://ads-feed.s3.us-west-2.amazonaws.com/ads/business/123/vevor-123.xlsx",
+    "feedUrl": "https://pepitapocok.hu/share/test-feed.xlsx",
     "frequency": "3h",
     "currency": "EUR",
     "convertCurrency": true,
@@ -20,8 +20,7 @@
       "Product title": "name",
       "Price": "price",
       "Inventory quantity": "stock",
-      "Product description": "description",
-      "Image link": "image_url"
+      "Product description": "description"
     }
   },
   {

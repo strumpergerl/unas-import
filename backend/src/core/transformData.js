@@ -1,37 +1,30 @@
 const Big = require('big.js');
 
 
-/**
- * Átalakítja a rekordokat Unas-kompatibilis formátumra.
- * @param {Array<object>} records - A beolvasott rekordok tömbje.
- * @param {object} processConfig - A `processes.json`-beli konfiguráció egy eleme.
- * @returns {Array<object>} - Az átalakított rekordok tömbje.
- */
 function transformData(records, processConfig) {
-  const {
-    fieldMapping,
-    pricingFormula,
-    rounding,
-    convertCurrency,
-    targetCurrency,
-    fxProvider
-  } = processConfig;
-
+  const { fieldMapping, pricingFormula, rounding } = processConfig;
   return records.map(record => {
-    const transformed = {};
+    const transformed = { /* más mezők átadása… */ };
 
-    // Mezőleképezés
-    for (const [sourceField, targetField] of Object.entries(fieldMapping)) {
-      transformed[targetField] = record[sourceField];
-    }
-
-    // Árképzés
     if (pricingFormula) {
-      const baseKey = Object.keys(fieldMapping).find(key => fieldMapping[key] === 'price');
-      const basePrice = Big(record[baseKey]);
-      const match = pricingFormula.match(/base\s*([*\/\+\-])\s*(\d+(?:\.\d+)?)/);
+      // 1) Megkeressük, melyik forrás-mező tartozik a 'price' kulcshoz
+      const baseKey = Object
+        .entries(fieldMapping)
+        .find(([, target]) => target === 'price')?.[0];
+      // 2) Először defaultoljuk null/üres esetén '0'-ra
+      let rawPrice = record[baseKey];
+      rawPrice = rawPrice == null || rawPrice === '' ? '0' : String(rawPrice);
+      // 3) Csak számjegyek, pont és kötőjel maradjon meg
+      const cleanPrice = rawPrice.replace(/[^0-9.\-]/g, '') || '0';
+      const basePrice = Big(cleanPrice);
+
+      // 4) Kivonjuk a pricingFormula operátort és tényezőt
+      const match = pricingFormula.match(/base\s*([*\/+\-])\s*(\d+(?:\.\d+)?)/);
       if (match) {
-        const [, operator, factor] = match;
+        const [, operator, factorStr] = match;
+        const cleanFactor = (factorStr || '1').replace(/[^0-9.\-]/g, '') || '1';
+        const factor = Big(cleanFactor);
+
         let price = basePrice;
         switch (operator) {
           case '*': price = price.times(factor); break;
@@ -39,32 +32,19 @@ function transformData(records, processConfig) {
           case '+': price = price.plus(factor); break;
           case '-': price = price.minus(factor); break;
         }
-        // Kerekítés
-        transformed.price = price.round(0, 0).mul(rounding).div(rounding).toString();
-      }
-    }
 
-    // Valuta konverzió
-    if (convertCurrency) {
-      // TODO: FX provider hívás: fxProvider, record[currency]
-      transformed.price = `CONVERTED:${transformed.price}`;
-      transformed.currency = targetCurrency;
+        // 5) Kerekítés half-up a rounding mező szerint
+        const rounded = price
+          .round(0, Big.roundHalfUp)       // először egészekre
+          .div(rounding)                   // osztás a kerekítési egységgel
+          .round(0, Big.roundHalfUp)       // újrakerekítés egészekre
+          .times(rounding);                // visszaszorzás
+        transformed.price = rounded.toString();
+      }
     }
 
     return transformed;
   });
 }
-
-// test('pricingFormula alkalmazása és kerekítés', () => {
-//   const records = [{ Price: '100' }];
-//   const config = {
-//     fieldMapping: { Price: 'price' },
-//     pricingFormula: 'base*1.2',
-//     rounding: 100,
-//     convertCurrency: false
-//   };
-//   const result = transformData(records, config);
-//   expect(result[0].price).toBe('120');
-// });
 
 module.exports = transformData;

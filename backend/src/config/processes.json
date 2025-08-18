@@ -1,6 +1,7 @@
 [
   {
     "vat": 27,
+    "stockThreshold": 0,
     "processId": "shop1_2025-01-01_vevor",
     "shopId": "shop1",
     "displayName": "Vevor - Aligvárom szinkron22",
@@ -9,11 +10,11 @@
     "currency": "EUR",
     "convertCurrency": true,
     "targetCurrency": "HUF",
-    "pricingFormula": "base*1.20",
+    "pricingFormula": "{basePrice}*{discount}*{priceMargin}+{vat}",
     "priceMargin": 20,
     "discount": 10,
     "rounding": 100,
-    "dryRun": false,
+    "dryRun": true,
     "fieldMapping": {
       "SKU": "sku",
       "Product title": "name",
@@ -24,6 +25,7 @@
   },
   {
     "vat": 20,
+    "stockThreshold": 0,
     "processId": "shop1_2025-07-18",
     "shopId": "shop1",
     "displayName": "teszt",
@@ -31,7 +33,7 @@
     "frequency": "1h",
     "currency": "EUR",
     "targetCurrency": "HUF",
-    "pricingFormula": "{basePrice}+{basePrice}",
+    "pricingFormula": "{basePrice}+",
     "priceMargin": 10,
     "discount": 4,
     "rounding": 100,
@@ -53,6 +55,7 @@
     "priceMargin": 0,
     "discount": 0,
     "rounding": 100,
-    "fieldMapping": {}
+    "fieldMapping": {},
+    "dryRun": true
   }
 ]

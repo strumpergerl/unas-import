@@ -4,7 +4,7 @@ module.exports = {
       name: 'unas-importer',
       script: 'npm',
       args: 'start',
-      cwd: __dirname,      // munkakönyvtár a projekt gyökere
+      cwd: __dirname,
       watch: true,
       env: {
         NODE_ENV: 'development'
@@ -19,7 +19,11 @@ module.exports = {
         EMAIL_PORT: process.env.EMAIL_PORT,
         EMAIL_USER: process.env.EMAIL_USER,
         EMAIL_PASS: process.env.EMAIL_PASS,
-        EMAIL_TO: process.env.EMAIL_TO
+        EMAIL_TO: process.env.EMAIL_TO,
+        OER_APP_ID: process.env.OER_APP_ID,
+        OER_BASE_URL: process.env.OER_BASE_URL,
+        OER_API_URL: process.env.OER_API_URL,
+        OER_LATEST_URL: process.env.OER_LATEST_URL
       }
     }
   ]

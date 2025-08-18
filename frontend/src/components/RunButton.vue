@@ -10,21 +10,29 @@
 
 <script>
 import api from '../services/api';
+import { ElMessage } from 'element-plus';
+import { VideoPlay } from '@element-plus/icons-vue';
 
 export default {
-  props: ['id'],
+  props: {
+    id: String,
+    records: { type: Array, default: () => [] }
+  },
+  components: {
+    VideoPlay
+  },
   data: () => ({ loading: false }),
   methods: {
     async run() {
       this.loading = true;
       try {
-        console.log('Futás indítása folyamat:', this.id);
-        const response = await api.runProcess(this.id)
+        console.log('Futás indítása folyamat:', this.id, 'rekordok:', this.records);
+        const response = await api.runProcessById(this.id);
         console.log('API válasz:', response)
         this.$emit('done', this.id)
       } catch (err) {
         console.error('API hiba:', err.response?.data || err)
-        this.$message.error(
+        ElMessage.error(
           `Hiba a futtatás során: ${err.response?.data?.error || err.message}`
         )
       } finally {

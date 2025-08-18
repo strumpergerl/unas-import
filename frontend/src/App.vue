@@ -51,7 +51,7 @@
 	import ShopSelector from './components/ShopSelector.vue';
 	import ProcessTable from './components/ProcessTable.vue';
 	import ProcessForm from './components/ProcessForm.vue';
-  import ExchangeRates from './components/ExchangeRates.vue';
+  	import ExchangeRates from './components/ExchangeRates.vue';
 	import LogsViewer from './components/LogsViewer.vue';
 	import api from './services/api';
 	import axios from 'axios';

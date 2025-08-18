@@ -12,6 +12,7 @@
     "devNoPm2": "concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build:frontend": "npm --workspace=frontend run build",
     "start:backend": "npm --workspace=backend run start",
+    "install-start": "npm run install:all && npm run build:frontend && npm run start:backend",
     "start": "npm run install:all && npm run build:frontend && npm run start:backend"
   },
   "devDependencies": {

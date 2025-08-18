@@ -16,7 +16,9 @@ async function parseData(buffer, feedUrl) {
     case 'xls': {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
       const sheet = workbook.SheetNames[0];
-      return XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { raw: false });
+      console.log(`Parsing sheet: ${sheet}`);
+      const records = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { raw: false });
+      return Array.isArray(records) ? records : [];
     }
     case 'csv': {
       const text = buffer.toString('utf8');
@@ -27,7 +29,8 @@ async function parseData(buffer, feedUrl) {
       const parser = new xml2js.Parser();
       const result = await parser.parseStringPromise(text);
       // TODO: a pontos útvonal a rekordokig
-      return result;
+      //return result;
+      return [];
     }
     default:
       throw new Error(`Unsupported extension: ${ext}`);

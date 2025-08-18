@@ -1,8 +1,8 @@
 <template>
   <div class="exchange-rates">
     <template v-if="Object.keys(rates).length">
-      <span v-for="(rate, cur) in rates" :key="cur">
-        1 {{ baseCurrency }} = {{ formatRate(rate) }} {{ cur }}
+      <span v-for="(item, idx) in filteredRates" :key="item.cur">
+        1 {{ item.cur }} = {{ formatRate(item.rate) }} {{ baseCurrency }}
       </span>
     </template>
     <span v-else>Árfolyam betöltése…</span>
@@ -20,7 +20,7 @@ export default {
     return {
       rates: {},
       baseCurrency: 'HUF',
-      refreshInterval: 10 * 60 * 1000, // 10 perc
+      refreshInterval: 60 * 60 * 1000, // 1 óra
     };
   },
   mounted() {
@@ -30,11 +30,17 @@ export default {
   beforeDestroy() {
     clearInterval(this.timer);
   },
+  computed: {
+    filteredRates() {
+      return Object.entries(this.rates)
+        .filter(([cur]) => cur !== this.baseCurrency)
+        .map(([cur, rate]) => ({ cur, rate }));
+    },
+  },
   methods: {
     async loadRates() {
         try {
             const response = await api.getRates();
-            // Feltételezve, hogy az árfolyamok a response.data.rates-ben vannak
             this.rates = response.data.rates || {};
             console.log('Árfolyamok betöltve:', this.rates);
         } catch (error) {
@@ -53,11 +59,12 @@ export default {
 
 <style scoped>
 .exchange-rates {
-  background: #fafafa;
+  background: #333;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid #e0e0e0;
   font-size: 0.9rem;
   text-align: center;
+  color: #e0e0e0;
 }
 .exchange-rates span {
   margin: 0 0.75rem;

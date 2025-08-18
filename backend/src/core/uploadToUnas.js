@@ -17,6 +17,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
   for (const rec of records) {
     // 1. Lekérjük létező terméket (opcionális)
+    console.log(rec.name);
     const getReq = { getProduct: { apiKey: API_KEY, productId: rec.sku } };
     const getXml = `<?xml version="1.0" encoding="UTF-8"?>
     ${builder.buildObject(getReq)}`;

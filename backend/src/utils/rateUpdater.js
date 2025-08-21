@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('../bootstrapEnv');
 const cron = require('node-cron');
 const axios = require('axios');
 const currencies = require('../config/currencies.json');

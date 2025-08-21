@@ -1,6 +1,6 @@
+require('../bootstrapEnv');
 const axios = require('axios');
 const xml2js = require('xml2js');
-require('dotenv').config();
 
 const API_KEY = process.env.UNAS_API_KEY;
 const BASE_URL = process.env.UNAS_API_URL || 'https://api.unas.eu/shop';

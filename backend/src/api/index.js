@@ -1,6 +1,5 @@
 // backend/src/api/index.js
-const devProductsRouter = require('./devProducts');
-
+require('../bootstrapEnv');
 const express = require('express');
 const downloadFile = require('../core/downloadFile');
 const parseData   = require('../core/parseData');
@@ -11,6 +10,23 @@ const processes = require('../config/processes.json');
 const rateUpdater = require('../utils/rateUpdater'); 
 const { scheduleProcesses } = require('../scheduler');
 const { getLogs } = require('../runner');
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+const candidates = [
+  path.resolve(__dirname, '../../.env'), // monorepo gyökér
+  path.resolve(__dirname, '../.env'),    // backend/.env
+  path.resolve(process.cwd(), '.env')    // futtatási CWD
+];
+
+for (const p of candidates) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+    console.log(`[ENV] Loaded: ${p}`); // NEM logol kulcsokat!
+    break;
+  }
+}
 
 const router = express.Router();
 const logs = [];
@@ -85,6 +101,8 @@ router.get('/rates', (req, res) => {
 // Ütemezés indítása
 scheduleProcesses(processes);
 
-router.use('/dev', devProductsRouter); 
+// Fejlesztői végpontok
+const testUnas = require('./testUnas');
+router.use('/test/unas', testUnas);
 
 module.exports = router;

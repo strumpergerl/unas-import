@@ -1,5 +1,6 @@
+// backend/src/utils/currencyConverter.js
 const processes = require('../config/processes.json');
-const getRates = require('./rateUpdater');
+const { getRates } = require('./rateUpdater');
 
 /**
  * Átvált egy összeget bármilyen devizából bármilyen devizába.
@@ -16,16 +17,20 @@ const fetchRates = async () => {
 }
 
 async function convertCurrency(amount, fromCurrency, toCurrency) {
-    const rates = await fetchRates();
-    // If fromCurrency is not provided, use the one from processes.json
-    const sourceCurrency = fromCurrency || processes.currency;
-    const targetCurrency = toCurrency || 'HUF';
+  if (!fromCurrency || !toCurrency) {
+    throw new Error('convertCurrency: fromCurrency és toCurrency kötelező');
+  }
+  const { rates } = getRates();
+  if (!rates || Object.keys(rates).length === 0) {
+    throw new Error('Nincsenek elérhető árfolyamok. Kérjük, frissítse az árfolyamokat.');
+  }
 
-    const fromRate = rates[sourceCurrency];
-    const toRate = rates[targetCurrency];
-    if (!fromRate) throw new Error(`Ismeretlen valutakód: ${sourceCurrency}`);
-    if (!toRate) throw new Error(`Ismeretlen valutakód: ${targetCurrency}`);
-    return amount / fromRate * toRate;
+  const fromRate = rates[fromCurrency];
+  const toRate   = rates[toCurrency];
+  if (!fromRate) throw new Error(`Ismeretlen valutakód: ${fromCurrency}`);
+  if (!toRate)   throw new Error(`Ismeretlen valutakód: ${toCurrency}`);
+
+  return amount * (fromRate / toRate);
 }
 
 module.exports = { convertCurrency };

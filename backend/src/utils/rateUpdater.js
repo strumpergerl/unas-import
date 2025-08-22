@@ -6,7 +6,6 @@ const currencies = require('../config/currencies.json');
 let rates = {}; 
 let lastUpdated = null;
 const appId = process.env.OER_APP_ID;
-console.log(`[rateUpdater] Árfolyam frissítő elindítva, appId: ${appId}`);
 
 /**
  * Lekéri és frissíti a rates objektumot.
@@ -15,7 +14,9 @@ async function updateRates() {
   try {
     // if (!appId) throw new Error('OER_APP_ID nincs beállítva');
     
-    const url = `https://openexchangerates.org/api/latest.json?app_id=d4b19c89f2d6480597cdaebfa1aa5ab4`;
+    const url = appId
+      ? `https://openexchangerates.org/api/latest.json?app_id=${appId}`
+      : `https://openexchangerates.org/api/latest.json`; 
     const resp = await axios.get(url);
     const all = resp.data.rates;
     

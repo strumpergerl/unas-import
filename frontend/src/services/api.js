@@ -1,3 +1,4 @@
+// frontend/src/services/api.js
 import axios from 'axios';
 
 const api = axios.create({
@@ -9,7 +10,6 @@ const api = axios.create({
 export default {
   getConfig:    () => api.get('/config'),
   saveConfig:   (data) => api.post('/config', data),
-  updateConfig: (data) => api.post('/config', data),
   deleteConfig: (id) => api.delete(`/config/${id}`),
   runProcess:  (id, records) => api.post('/run', {
     processId: id,

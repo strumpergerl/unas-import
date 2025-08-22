@@ -13,7 +13,7 @@
 			</div>
 		</el-header>
 		<el-main>
-      <ExchangeRates />
+			<ExchangeRates />
 			<el-button type="primary" class="new-process-btn" @click="openForm()"
 				>Új szinkron létrehozása</el-button
 			>
@@ -21,12 +21,12 @@
 				:processes="filteredProcesses"
 				:shops="shops"
 				@edit="openForm"
-				@delete="deleteProcess"
+				@delete="handleDelete"
 				@run-complete="loadLogs"
 			/>
-			x
+			
 			<LogsViewer :logs="logs" />
-			x
+			
 			<!-- Modal a ProcessForm számára -->
 			<el-dialog
 				title="Szinkron folyamat szerkesztése"
@@ -51,13 +51,20 @@
 	import ShopSelector from './components/ShopSelector.vue';
 	import ProcessTable from './components/ProcessTable.vue';
 	import ProcessForm from './components/ProcessForm.vue';
-  	import ExchangeRates from './components/ExchangeRates.vue';
+	import ExchangeRates from './components/ExchangeRates.vue';
 	import LogsViewer from './components/LogsViewer.vue';
 	import api from './services/api';
 	import axios from 'axios';
+	import { ElMessage } from 'element-plus';
 
 	export default {
-		components: { ShopSelector, ProcessTable, LogsViewer, ProcessForm, ExchangeRates },
+		components: {
+			ShopSelector,
+			ProcessTable,
+			LogsViewer,
+			ProcessForm,
+			ExchangeRates,
+		},
 		setup() {
 			const shops = ref([]);
 			const selectedShop = ref(null);
@@ -115,21 +122,30 @@
 				const idx = processes.value.findIndex(
 					(p) => p.processId === proc.processId
 				);
-				if (idx > -1) processes.value.splice(idx, 1, proc);
-				else processes.value.push(proc);
-				// POST a proxy-n keresztül a backend /api/config végpontra
-				await axios.post('/api/config', { processes: processes.value });
+				if (idx > -1) {
+					processes.value.splice(idx, 1, proc);
+				} else {
+					processes.value.push(proc);
+				}
+
+				await api.saveConfig({ processes: processes.value });
+
 				showForm.value = false;
 				loadConfig();
 			};
 
-			const deleteProcess = async (id) => {
-				processes.value = processes.value.filter((p) => p.processId !== id);
-				await api.deleteConfig(id);
-				loadLogs();
-			};
-
-
+			async function handleDelete(processId) {
+				try {
+					await api.deleteConfig(processId);
+					await loadConfig();
+					ElMessage.success('Folyamat törölve.');
+				} catch (err) {
+					ElMessage.error('A folyamat törlése sikertelen.');
+					console.error(err);
+				} finally {
+					loadLogs();
+				}
+			}
 
 			onMounted(() => {
 				loadConfig();
@@ -147,7 +163,7 @@
 				editedProcess,
 				openForm,
 				saveProcess,
-				deleteProcess,
+				handleDelete,
 				loadLogs,
 			};
 		},

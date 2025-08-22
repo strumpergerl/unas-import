@@ -119,7 +119,7 @@ router.get('/products', async (req, res) => {
 					Sku: sku, // több SKU esetén vesszővel lehet elválasztani
 					State: 'live', // csak létező termékek
 					// StatusBase: '1,2,3', // ha aktív státuszokra szűrnél
-					ContentType: 'minimal', // gyors válasz
+					ContentType: 'full',
 					LimitNum: 1,
 					Lang: 'hu',
 				},
@@ -139,7 +139,7 @@ router.get('/products', async (req, res) => {
 					getProduct: {
 						Sku: sku,
 						State: 'live',
-						ContentType: 'minimal',
+						ContentType: 'full',
 						LimitNum: 1,
 						Lang: 'hu',
 					},
@@ -195,6 +195,20 @@ router.get('/products', async (req, res) => {
 	} catch (e) {
 		res.status(500).json({ error: e.message });
 	}
+});
+
+router.get('/login', async (req, res) => {
+  try {
+    const { shopId } = req.query;
+    if (!shopId) return res.status(400).json({ error: 'shopId kötelező' });
+
+    const apiKey = getApiKeyForShop(shopId);
+    const { getBearerTokenForShop } = require('./unasAuth');
+    const token = await getBearerTokenForShop(shopId, apiKey);
+    res.json({ shopId, ok: true, tokenMasked: token ? token.slice(0,6) + '…' : null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 module.exports = router;

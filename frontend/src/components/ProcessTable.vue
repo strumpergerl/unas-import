@@ -1,13 +1,5 @@
 <template>
   <div>
-    <!-- Kereső mező -->
-    <!-- <el-input
-      v-model="search"
-      placeholder="Keresés folyamat név vagy ID alapján"
-      clearable
-      style="width: 300px; margin-bottom: 16px;"
-    /> -->
-
     <!-- Táblázat testreszabott oszlopokkal -->
     <el-table
       :data="paginatedData"

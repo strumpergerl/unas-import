@@ -14,6 +14,10 @@ const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
 
+const fsSync = require('fs');
+const pathMod = require('path');
+const PROCESSES_FILE = pathMod.resolve(__dirname, '../config/processes.json');
+
 const candidates = [
   path.resolve(__dirname, '../../.env'), // monorepo gyökér
   path.resolve(__dirname, '../.env'),    // backend/.env
@@ -26,6 +30,14 @@ for (const p of candidates) {
     console.log(`[ENV] Loaded: ${p}`); // NEM logol kulcsokat!
     break;
   }
+}
+
+/** Visszaadja a process configot azonosító alapján. */
+function getProcessConfigById(processId) {
+  if (!processId) return null;
+  return Array.isArray(processes)
+    ? processes.find(p => p.processId === processId)
+    : null;
 }
 
 const router = express.Router();
@@ -50,6 +62,12 @@ router.post('/config', (req, res) => {
     // memóriabeli frissítés
     processes.length = 0;
     newProcesses.forEach(p => processes.push(p));
+    
+    // ütemező újraindítás az új konfigurációval
+    if (typeof scheduleProcesses === 'function') {
+      scheduleProcesses(processes);
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -58,32 +76,95 @@ router.post('/config', (req, res) => {
 
 // Folyamat futtatása
 router.post('/run', async (req, res) => {
-  console.log('BODY:', req.body);
-  const { processId } = req.body;
-  const proc = processes.find(p => p.processId === processId);
-  if (!proc) return res.status(404).json({ error: 'Process nem található' });
-
-  const shop = shops.find(s => s.shopId === proc.shopId);
   try {
-    logs.push(`${new Date().toISOString()} - ${proc.displayName} start`);
+    const { processId } = req.body || {};
+    if (!processId) return res.status(400).json({ success: false, error: 'processId required' });
 
-    const buf = await downloadFile(proc.feedUrl);
-    logs.push(`Letöltve: ${proc.feedUrl}`);
+    console.log('[RUN] processId:', processId, 'available:', processes.map(p => p.processId));
 
-    const recs = await parseData(buf, proc.feedUrl);
-    logs.push(`Parsed: ${recs.length} rekord`);
+    const processConfig = getProcessConfigById(processId); // a te függvényed
+    if (!processConfig) return res.status(404).json({ success: false, error: `Process not found: ${processId}` });
 
-    const trans = await transformData(recs, proc);
-    logs.push(`Átalakítva`);
+    const t0 = Date.now();
+    const dl = await downloadFile(processConfig.feedUrl);
+    const rawSize = dl?.length || 0;
 
-    await uploadToUnas(trans, proc, shop);
-    logs.push(`Feltöltés kész${proc.dryRun ? ' (dryRun)' : ''}`);
+    const parsed = await parseData(dl, processConfig);   // Array
+    const parsedCount = Array.isArray(parsed) ? parsed.length : 0;
+    console.log('[DEBUG] parsed sample:', parsed?.[0], 'count=', parsedCount);
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error('❌ /run hiba:', err)
-    logs.push(`Hiba: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    const transformed = await transformData(parsed, processConfig); // Array
+    const transformedCount = Array.isArray(transformed) ? transformed.length : 0;
+    console.log('[DEBUG] transformed sample:', transformed?.[0], 'count=', transformedCount);
+
+    // Opcionális „feltöltésre alkalmas” szűrő: csak ahol van SKU
+    const withSku = (transformed || []).filter(x => x?.sku || x?.Sku || x?.SKU);
+    const uploadCandidates = withSku.length;
+
+    let uploadStats = null;
+
+    // DRY-run esetén ne töltsünk
+    if (!processConfig.dryRun) {
+      await uploadToUnas(withSku, processConfig);
+    }
+
+    const dt = Date.now() - t0;
+    return res.json({
+      success: true,
+      stats: {
+        rawSize,
+        parsedCount,
+        transformedCount,
+        uploadCandidates,
+        durationMs: dt,
+        upload: uploadStats,
+      },
+      sample: {
+        parsed: parsed?.[0] || null,
+        transformed: transformed?.[0] || null,
+      },
+    });
+  } catch (e) {
+    console.error('❌ /run hiba:', e);
+    res.status(500).json({ success: false, error: String(e.message || e) });
+  }
+});
+
+// Folyamat törlése
+router.delete('/config/:processId', (req, res) => {
+  try {
+    const { processId } = req.params;
+    if (!processId) {
+      return res.status(400).json({ ok: false, error: 'processId required' });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.resolve(__dirname, '../config/processes.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const list = JSON.parse(raw);
+
+    const idx = list.findIndex(p => p.processId === processId);
+    if (idx === -1) {
+      return res.status(404).json({ ok: false, error: 'Process not found', processId });
+    }
+
+    const [removed] = list.splice(idx, 1);
+    fs.writeFileSync(filePath, JSON.stringify(list, null, 2), 'utf-8');
+
+    // memóriabeli processes frissítése
+    processes.length = 0;
+    list.forEach(p => processes.push(p));
+
+    // ütemező újraindítása
+    if (typeof scheduleProcesses === 'function') {
+      scheduleProcesses(processes);
+    }
+
+    return res.json({ ok: true, removed });
+  } catch (e) {
+    console.error('[DELETE /api/config/:processId] error:', e);
+    return res.status(500).json({ ok: false, error: 'Internal error' });
   }
 });
 

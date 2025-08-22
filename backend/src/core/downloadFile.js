@@ -1,13 +1,23 @@
+// backend/src/core/downloadFile.js
+
 const axios = require('axios');
 
-/**
- * Letölt egy fájlt a megadott URL-ről.
- * @param {string} url - A fájl elérési útja.
- * @returns {Promise<Buffer>} - A letöltött fájl tartalma Buffer-ben.
- */
-async function downloadFile(url) {
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(response.data);
+async function downloadFile(feedUrl) {
+  if (!feedUrl) throw new Error('downloadFile: feedUrl kötelező');
+  const resp = await axios.get(feedUrl, {
+    responseType: 'arraybuffer',
+    validateStatus: () => true,
+  });
+
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`Feed download failed ${resp.status} ${resp.statusText}`);
+  }
+
+  const size = resp.data?.byteLength || 0;
+  const ctype = resp.headers?.['content-type'] || 'n/a';
+  console.log(`[DL] ${feedUrl} -> ${ctype}, ${size} bytes`);
+
+  return Buffer.from(resp.data);
 }
 
 module.exports = downloadFile;

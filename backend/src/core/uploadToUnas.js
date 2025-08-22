@@ -27,6 +27,62 @@ const builder = new xml2js.Builder({ headless: true });
 const keepAliveHttp = new http.Agent({ keepAlive: true, maxSockets: 20 });
 const keepAliveHttps = new https.Agent({ keepAlive: true, maxSockets: 20 });
 
+function toPosNumberString(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0';
+  return Math.max(0, n).toString();
+}
+
+function formulaHasVat(formula) {
+  return typeof formula === 'string' && /\{vat\}/i.test(formula);
+}
+
+function ensureNetGross(item, processConfig) {
+  const vatPct = Number(processConfig?.vat ?? 0);
+  const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
+
+  // A transformData által előállított mezők (preferált)
+  const inNet   = item.price_net   != null ? Number(item.price_net)   : null;
+  const inGross = item.price_gross != null ? Number(item.price_gross) : null;
+
+  // Legacy: csak "price" érkezett a rekordban
+  const legacy  = item.price != null ? Number(item.price) : null;
+
+  const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
+
+  let net = null;
+  let gross = null;
+
+  if (Number.isFinite(inNet) && inNet > 0 && Number.isFinite(inGross) && inGross > 0) {
+    net = inNet;
+    gross = inGross;
+  } else if (Number.isFinite(inNet) && inNet > 0) {
+    net = inNet;
+    gross = inNet * vatFactor;
+  } else if (Number.isFinite(inGross) && inGross > 0) {
+    gross = inGross;
+    net = vatFactor > 0 ? inGross / vatFactor : inGross;
+  } else if (Number.isFinite(legacy) && legacy > 0) {
+    // Itt dől el, hogy a legacy "price" nettó vagy bruttó
+    if (treatLegacyAsGross) {
+      gross = legacy;
+      net = vatFactor > 0 ? legacy / vatFactor : legacy;
+    } else {
+      net = legacy;
+      gross = legacy * vatFactor;
+    }
+  } else {
+    net = 0;
+    gross = 0;
+  }
+
+  //  Egész Ft-ra kerekítés
+  net   = Math.floor(Math.max(0, net));
+  gross = Math.floor(Math.max(0, gross));
+
+  return { net, gross };
+}
+
 // --- Header címke normalizálás
 function normalizeUnasHeaderLabel(h) {
   const s = String(h ?? '').trim();
@@ -36,10 +92,9 @@ function normalizeUnasHeaderLabel(h) {
   return beforePipe.replace(/^paraméter\s*:\s*/i, '').trim();
 }
 
-// Opcionális: explicit megadás ENV-ből / processConfig-ból (ha használnád később)
+
 const EXPLICIT_SUPPLIER_CODE_HEADER = process.env.UNAS_SUPPLIER_CODE_HEADER || null;
 
-// Heurisztikus minták a beszállítói kódhoz (ha nincs explicit param ID oszlop)
 const SUPPLIER_CODE_HEADER_CANDIDATES = [
   /beszállítói.*cikkszám/i,
   /beszállítói.*kód/i,
@@ -52,6 +107,8 @@ const SUPPLIER_CODE_HEADER_CANDIDATES = [
 
 // KONKRÉT név, amit most kaptál a ProductDB-ből:
 const CANONICAL_SUPPLIER_PARAM_NAME = 'Beszerzési helyen a cikkszáma - Csak nekünk';
+
+const norm = s => String(s ?? '').trim();
 
 function findSupplierCodeColumn(headerArr, processConfig) {
   // 0) Normalizált névlista (Paraméter:...|... formátum levágva)
@@ -92,6 +149,30 @@ function findSupplierCodeColumn(headerArr, processConfig) {
 // --- Helper: backoff
 function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+function migrateIndexShape(idx) {
+  // Régi: supplierCode -> "UNAS_SKU" (string)
+  // Új:  supplierCode -> { sku, cikkszam, netto, brutto }
+  let mutated = false;
+  for (const [key, val] of idx.entries()) {
+    if (typeof val === 'string') {
+      idx.set(key, { sku: val, cikkszam: '', netto: '', brutto: '' });
+      mutated = true;
+    } else if (val && typeof val === 'object') {
+      // gondoskodjunk a mezőkről
+      idx.set(key, {
+        sku: val.sku || '',
+        cikkszam: val.cikkszam || '',
+        netto: val.netto || '',
+        brutto: val.brutto || '',
+      });
+    } else {
+      idx.delete(key);
+      mutated = true;
+    }
+  }
+  return mutated;
 }
 
 // --- Diszk cache utilok
@@ -166,8 +247,15 @@ function ensureIndexInMemory(shopId) {
   if (!productDbIndexCache.has(shopId)) {
     const disk = loadIndexFromDisk(shopId);
     if (disk) {
+      // MIGRÁCIÓ
+      const changed = migrateIndexShape(disk);
       productDbIndexCache.set(shopId, disk);
-      console.log(`[UNAS] Disk cache betöltve (${shopId}): ${disk.size} kulcs`);
+      if (changed) {
+        console.log(`[UNAS] Disk cache formátum migrálva (${shopId}), mentés...`);
+        saveIndexToDisk(shopId, disk);
+      } else {
+        console.log(`[UNAS] Disk cache betöltve (${shopId}): ${disk.size} kulcs`);
+      }
     }
   }
 }
@@ -185,7 +273,8 @@ async function buildSupplierCodeToUnasSkuIndex(bearer, shopId) {
     if (idx && idx.size > 0) {
       productDbIndexCache.set(shopId, idx);
       saveIndexToDisk(shopId, idx);
-      console.log(`[UNAS] ProductDB index építve (${shopId}): ${idx.size} kulcs (Param#86891 → Sku)`);
+      console.log(`[UNAS] ProductDB index építve (${shopId}): ${idx.size} kulcs (Param#86891 → {sku,cikkszam,netto,brutto})`);
+
       return productDbIndexCache.get(shopId);
     }
   } catch (e) {
@@ -259,29 +348,51 @@ async function tryBuildIndexFromProductDB(bearer) {
   const rows = csvParse(text, { columns: true, skip_empty_lines: true, delimiter: ';' });
   const header = rows[0] ? Object.keys(rows[0]) : [];
 
+  // UNAS belső Sku oszlop
   const skuCol =
     header.find((h) => /^sku$/i.test(String(h).trim())) ||
-    header.find((h) => /cikksz|cikkszám/i.test(String(h)));
+    header.find((h) => /cikksz|cikkszám/i.test(String(h))); // biztonsági fallback
 
-    const paramCol = findSupplierCodeColumn(header, null);
+  // Beszállítói kód oszlop (Param#86891 vagy megnevezés alapján)
+  const paramCol = findSupplierCodeColumn(header, null);
+
+  // Cél oszlopok (rugalmas, ékezetekkel)
+  const cikkszamCol = header.find((h) => /^cikkszám$/i.test(h));
+  const nettoCol    = header.find((h) => /^nettó\s*ár$/i.test(h));
+  const bruttoCol   = header.find((h) => /^bruttó\s*ár$/i.test(h));
 
   if (!skuCol || !paramCol) {
-  console.warn(
-    '[UNAS] ProductDB: beszállítói kód oszlop nem található. ' +
-    'Felismertük a "Paraméter: <Név>|..." mintát, de nincs egyezés a ' +
-    `"${CANONICAL_SUPPLIER_PARAM_NAME}" névre sem. ` +
-    'Tipp: engedélyezd a paraméter exportját a ProductDB-ben, vagy add meg ' +
-    'az oszlop nevét ENV-ben (UNAS_SUPPLIER_CODE_HEADER) / processConfig.supplierCodeHeader-ben.',
-    { skuCol, paramCol, headerPreview: header.slice(0, 12) }
-  );
-    return new Map();
+    console.warn(
+      '[UNAS] ProductDB: nem találtam a szükséges oszlopokat.',
+      { skuCol, paramCol, header }
+    );
+    return new Map(); // nincs értelmes index
+  }
+
+  if (!cikkszamCol || !nettoCol || !bruttoCol) {
+    console.warn(
+      '[UNAS] Figyelem: hiányzik egy vagy több cél oszlop (Cikkszám/Nettó Ár/Bruttó Ár). ' +
+      'Az index akkor is épül, de a hiányzó mezők üresen maradnak.',
+      {
+        cikkszamCol: !!cikkszamCol,
+        nettoCol: !!nettoCol,
+        bruttoCol: !!bruttoCol,
+      }
+    );
   }
 
   const idx = new Map();
   for (const r of rows) {
-    const supplierCode = String(r[paramCol] ?? '').trim();
-    const unasSku = String(r[skuCol] ?? '').trim();
-    if (supplierCode && unasSku && !idx.has(supplierCode)) idx.set(supplierCode, unasSku);
+    const unasSku      = String(r[skuCol] ?? '').trim();
+    const supplierCode = norm(r[paramCol]);
+    if (supplierCode && unasSku) {
+      idx.set(supplierCode, {
+        sku: unasSku,
+        cikkszam: cikkszamCol ? String(r[cikkszamCol] ?? '').trim() : '',
+        netto:    nettoCol    ? String(r[nettoCol] ?? '').trim()    : '',
+        brutto:   bruttoCol   ? String(r[bruttoCol] ?? '').trim()   : '',
+      });
+    }
   }
   return idx;
 }
@@ -383,83 +494,105 @@ async function uploadToUnas(records, processConfig, shopConfig) {
   }
 
   for (const rec of records) {
-    // Feed "SKU" == beszállítói cikkszám (Param#86891 Value)
-    const supplierCode = rec.sku || rec.SKU || rec.Sku;
-    if (!supplierCode) {
-      console.warn('[UNAS] Kihagyva: hiányzó supplierCode (feed SKU) a rekordban:', rec);
-      stats.skippedNoSku.push(rec);
-      continue;
-    }
+  // 1) Feed SKU = beszállítói kód (Param#86891 érték)
+  const supplierCodeRaw = rec.sku || rec.SKU || rec.Sku;
+  const supplierCode = norm(supplierCodeRaw); // <— legyen norm() a fájl tetején
+  if (!supplierCode) {
+    console.warn('[UNAS] Kihagyva: hiányzó supplierCode (feed SKU) a rekordban:', rec);
+    stats.skippedNoSku.push(rec);
+    continue;
+  }
 
-    // 1) UNAS belső Sku feloldása indexből
-    const sku = supplierIndex.get(String(supplierCode).trim());
-    if (!sku) {
-      console.log(`[UNAS] Nincs UNAS Sku a supplierCode alapján (Param#86891): ${supplierCode}`);
-      stats.skippedNotFound.push(supplierCode);
-      continue;
-    }
+  // 2) Index lookup: supplierCode -> { sku, cikkszam, netto, brutto }
+  const entry = supplierIndex.get(supplierCode);
+  if (!entry || !entry.sku) {
+    console.log(`[UNAS] Nincs UNAS Sku a supplierCode alapján (Param#86891): ${supplierCode}`);
+    stats.skippedNotFound.push(supplierCode);
+    continue;
+  }
 
-    // 2) Létezés ellenőrzés (opcionális, de marad)
-    let exists = false;
-    try {
-      exists = await productExistsBySku(bearer, sku);
-    } catch (e) {
-      console.warn(`[UNAS] Létezés-ellenőrzés hiba, SKU kihagyva: ${sku}`, e?.message || e);
-      stats.skippedNotFound.push(sku);
-      continue;
-    }
-    if (!exists) {
-      console.log(`[UNAS] SKU nem található (kihagyva, csak modify engedett): ${sku}`);
-      stats.skippedNotFound.push(sku);
-      continue;
-    }
+  const { sku, cikkszam, netto, brutto } = entry;
 
-    // 3) UNAS Product node
-    const productNode = { Sku: sku };
-    if (rec.name != null) productNode.Name = String(rec.name);
-    if (rec.description != null) productNode.Description = String(rec.description);
-    if (rec.stock != null) {
-      productNode.Stocks = { Stock: { Qty: String(rec.stock) } };
-    }
-    if (rec.price != null) {
-      productNode.Prices = { Price: { Type: 'normal', Gross: String(rec.price), Actual: '1' } };
-    }
+  // Debug kontextus – csak ha kell:
+  console.debug('[UNAS] Kontextus:', { supplierCode, sku, cikkszam, netto, brutto });
 
-    const payload = builder.buildObject({
-      Products: { Product: { Action: 'modify', ...productNode } },
-    });
+  // 3) Létezés ellenőrzés
+  let exists = false;
+  try {
+    exists = await productExistsBySku(bearer, sku);
+  } catch (e) {
+    console.warn(`[UNAS] Létezés-ellenőrzés hiba, SKU kihagyva: ${sku}`, e?.message || e);
+    stats.skippedNotFound.push(sku);
+    continue;
+  }
+  if (!exists) {
+    console.log(`[UNAS] SKU nem található (kihagyva, csak modify engedett): ${sku}`);
+    stats.skippedNotFound.push(sku);
+    continue;
+  }
 
-    if (process.env.DEBUG_UNAS_XML === '1') {
-      console.debug('[UNAS OUT XML]\n<?xml version="1.0" encoding="UTF-8"?>\n' + payload);
-    }
+  // 4) Product node összeállítás (nettó+bruttó ár mindig megy)
+  const productNode = { Sku: sku };
 
-    console.log(`→ [UNAS] setProduct (modify) SKU=${sku} (supplierCode=${supplierCode})`);
-    try {
-      const resp = await postXml('setProduct', payload, bearer);
+  // Opcionális mezők
+  if (rec.name != null) productNode.Name = String(rec.name);
+  if (rec.description != null) productNode.Description = String(rec.description);
 
-      if (resp.status < 200 || resp.status >= 300) {
-        console.error(`❌ [UNAS] setProduct hiba SKU=${sku}: ${resp.status} ${resp.statusText}`);
-        stats.failed.push({
-          sku,
-          status: resp.status,
-          statusText: resp.statusText,
-          raw: resp.data,
-        });
-        continue;
-      }
+  // Készlet (ha van)
+  if (rec.stock != null) {
+    const qty = Math.max(0, Math.trunc(Number(rec.stock) || 0));
+    // UNAS többféle készlet-sémát elfogad; a legkompatibilisebb a Stocks/Stock/Qty
+    productNode.Stocks = { Stock: { Qty: String(qty) } };
+  }
 
-      console.log(`✓ [UNAS] módosítva SKU=${sku}`);
-      stats.modified.push(sku);
-    } catch (err) {
-      console.error(`❌ [UNAS] setProduct kivétel SKU=${sku}:`, err?.message || err);
+  // Nettó+bruttó biztosítása a processConfig.vat alapján (legacy price fallback-kal)
+  const { net, gross } = ensureNetGross(rec, processConfig);
+  const netStr = toPosNumberString(net);
+  const grossStr = toPosNumberString(gross);
+
+  // Mindig küldjük a normal ár sort Actual=1-gyel
+  productNode.Prices = {
+    Price: {
+      Type: 'normal',
+      Net: netStr,
+      Gross: grossStr,
+      Actual: '1',
+    },
+  };
+
+  const payload = builder.buildObject({
+    Products: { Product: { Action: 'modify', ...productNode } },
+  });
+
+  if (process.env.DEBUG_UNAS_XML === '1') {
+    console.debug('[UNAS OUT XML]\n<?xml version="1.0" encoding="UTF-8"?>\n' + payload);
+  }
+
+  console.log(`→ [UNAS] setProduct (modify) SKU=${sku} (supplierCode=${supplierCode})`);
+  try {
+    const resp = await postXml('setProduct', payload, bearer);
+    if (resp.status < 200 || resp.status >= 300) {
+      console.error(`❌ [UNAS] setProduct hiba SKU=${sku}: ${resp.status} ${resp.statusText}`);
       stats.failed.push({
         sku,
-        status: err?.response?.status || null,
-        statusText: err?.response?.statusText || String(err?.message || err),
-        raw: err?.response?.data || null,
+        status: resp.status,
+        statusText: resp.statusText,
+        raw: resp.data,
       });
+      continue;
     }
+    console.log(`✓ [UNAS] módosítva SKU=${sku}`);
+    stats.modified.push(sku);
+  } catch (err) {
+    console.error(`❌ [UNAS] setProduct kivétel SKU=${sku}:`, err?.message || err);
+    stats.failed.push({
+      sku,
+      status: err?.response?.status || null,
+      statusText: err?.response?.statusText || String(err?.message || err),
+      raw: err?.response?.data || null,
+    });
   }
+}
 
   // Opcionális: futás végén friss cache mentés
   if (productDbIndexCache.has(shop.shopId)) {

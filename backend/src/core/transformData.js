@@ -2,32 +2,6 @@
 const Big = require('big.js');
 const { convertCurrency } = require('../utils/currencyConverter');
 
-function applyPricing(base, formula, rounding = 1) {
-	// formula pl: "base*0.88*1.20*1.27" vagy "base*0.9+500"
-	let expr = formula.replace(/\bbase\b/g, base.toString());
-	// Biztonságos „mini-parser”: csak számok, ., + - * / és whitespace engedett
-	if (!/^[\d\.\s+\-*/]+$/.test(expr))
-		throw new Error('Érvénytelen pricingFormula');
-	// Big.js-al kiértékelés: bonts operátorokra/számokra
-	const tokens = expr.match(/(\d+(?:\.\d+)?|[+\-*/])/g);
-	let acc = Big(tokens.shift());
-	while (tokens.length) {
-		const op = tokens.shift();
-		const val = Big(tokens.shift());
-		if (op === '+') acc = acc.plus(val);
-		else if (op === '-') acc = acc.minus(val);
-		else if (op === '*') acc = acc.times(val);
-		else if (op === '/') acc = acc.div(val);
-	}
-	if (rounding > 1) {
-		// 100-as kerekítés: 12345 -> 12300 stb.
-		acc = acc.div(rounding).round(0, 0).times(rounding);
-	} else {
-		acc = acc.round(0, 0); // 0 decimális, lefelé/kereskedelmi szabály szerint
-	}
-	return acc;
-}
-
 function evalFormula(formula, values) {
 	if (!formula || typeof formula !== 'string') {
 		throw new Error('pricingFormula is empty or not a string');
@@ -181,129 +155,135 @@ function toBigOrZero(value) {
 	}
 }
 
+function hasVatInFormula(formula) {
+  return typeof formula === 'string' && /\{vat\}/.test(formula);
+}
+
+function roundToUnit(bigVal, unit = 1) {
+  if (!bigVal || bigVal.lte(0)) return Big(0);
+  if (unit > 1) {
+    // fogyasztói áraknál jellemző: felfelé a legközelebbi egységre
+    return bigVal.div(unit).round(0, Big.roundUp).times(unit);
+  }
+  return bigVal.round(0, Big.roundHalfUp);
+}
+
 async function transformData(records, processConfig) {
-	const {
-		fieldMapping,
-		stockThreshold = 1,
-		pricingFormula,
-		rounding = 1,
-		convertCurrency: doConvert = false,
-		targetCurrency = 'HUF',
-		discount = 0,
-		priceMargin = 0,
-		vat = 0,
-	} = processConfig;
+  const {
+    fieldMapping,
+    stockThreshold = 1,
+    pricingFormula,
+    rounding = 1,
+    convertCurrency: doConvert = false,
+    targetCurrency = 'HUF',
+    discount = 0,
+    priceMargin = 0,
+    vat = 0,
+  } = processConfig;
 
-	// Először keressük meg a price-hoz tartozó forrás kulcsot
-	const baseKey =
-		Object.entries(fieldMapping).find(([, dst]) => dst === 'price')?.[0] ||
-		null;
+  const baseKey = Object.entries(fieldMapping).find(([, dst]) => dst === 'price')?.[0] || null;
 
-	const transformedList = await Promise.all(
-		records.map(async (record) => {
-			const transformed = {};
+  const vatFactor = Big(1).plus(Big(vat).div(100));
+  const discountFactor = Big(1).minus(Big(discount).div(100));
+  const marginFactor   = Big(1).plus(Big(priceMargin).div(100));
 
-      for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
-        const dst = String(dstKey || '').toLowerCase();
-        // 'price' és 'stock' külön kerül kiszámításra/normalizálásra később
-        if (dst === 'price' || dst === 'stock') continue;
-        transformed[dst] = record[srcKey];
-      }
+  const formulaHasVat = hasVatInFormula(pricingFormula);
 
-			const basePrice = baseKey ? toBigOrZero(record[baseKey]) : Big(0);
+  const transformedList = await Promise.all(records.map(async (record) => {
+    const transformed = {};
 
-			const discountFactor = Big(1).minus(Big(discount).div(100)); // pl. 10% → 0.90
-			const marginFactor = Big(1).plus(Big(priceMargin).div(100)); // pl. 20% → 1.20
-			const vatFactor = Big(1).plus(Big(vat).div(100)); // pl. 27% → 1.27
+    // 1) Átlagos mezők másolása
+    for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
+      const dst = String(dstKey || '').toLowerCase();
+      if (dst === 'price' || dst === 'stock') continue;
+      transformed[dst] = record[srcKey];
+    }
 
-			let price = basePrice;
-			if (pricingFormula) {
-				try {
-					price = evalFormula(pricingFormula, {
-						basePrice,
-						discount: discountFactor,
-						priceMargin: marginFactor,
-						vat: vatFactor,
-					});
-				} catch (e) {
-					// Ha a képlet hibás, biztonságos fallback: basePrice
-					// (Esetleg ide tehető logolás is.)
-					price = basePrice;
-				}
-			}
+    // 2) Alapár beolvasása
+    const basePrice = baseKey ? toBigOrZero(record[baseKey]) : Big(0);
 
-			// 5) Devizakonverzió (ha be van kapcsolva)
-			if (doConvert && targetCurrency) {
-				try {
-					const converted = await convertCurrency(
-						price.toNumber(),
-						processConfig.currency, // forrás deviza a processből
-						targetCurrency // cél deviza
-					);
-					price = Big(converted);
-				} catch (e) {
-					// Árfolyam hiba esetén hagyjuk az eredeti árát (fallback)
-          
-				}
-			}
+    // 3) Nettó/bruttó számítás
+    let net = Big(0);
+    let gross = Big(0);
 
-			// 6) Kerekítés megadott egységre (1/10/100/...)
-			//   - előbb egészre kerekítünk (half-up), majd egységre kerekítés
-      if (price.lte(0)) {
-        console.warn('[PRICE-DEBUG] Nem pozitív ár a kerekítés előtt, fallback basePrice-re');
-        price = basePrice;
-      }
-
-			let rounded;
-			if (rounding > 1) {
-				// felfelé a legközelebbi többszörösre, hogy ne nullázódjon
-				rounded = price.div(rounding).round(0, Big.roundUp).times(rounding);
-			} else {
-				rounded = price.round(0, Big.roundHalfUp);
-			}
-			if (rounded.lte(0)) rounded = Big(1); // védelem
-			transformed.price = rounded.toString();
-
-			// 7) Készletküszöb logika
-			const stockSrcKey = Object.entries(fieldMapping).find(([, dst]) => {
-				const v = String(dst || '').toLowerCase();
-				return (
-					v === 'stock' ||
-					v.includes('stock') ||
-					v.includes('készlet') ||
-					v.includes('quantity') ||
-					v === 'qty'
-				);
-			})?.[0];
-
-			if (stockSrcKey) {
-        // feed készlet normalizálása
-        const rawStock = record[stockSrcKey];
-        let feedStock = 0;
-        if (rawStock !== undefined && rawStock !== null && rawStock !== '') {
-          const cleaned = String(rawStock)
-            .replace(',', '.')
-            .replace(/[^0-9.\-]/g, '')  // csak szám/jel maradjon
-            .trim();
-          const n = Number(cleaned);
-          feedStock = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    try {
+      if (pricingFormula) {
+        const val = evalFormula(pricingFormula, {
+          basePrice,
+          discount: discountFactor,
+          priceMargin: marginFactor,
+          vat: vatFactor,
+        });
+        if (formulaHasVat) {
+          // A képlet bruttót ad → számoljuk vissza a nettót
+          gross = val;
+          net = vatFactor.eq(0) ? Big(0) : gross.div(vatFactor);
+        } else {
+          // A képlet nettót ad → ebből képezzük a bruttót
+          net = val;
+          gross = net.times(vatFactor);
         }
-
-        // Küszöb kezelés: ha kisebb, akkor legyen 0
-        if (Number.isFinite(stockThreshold) && feedStock < stockThreshold) {
-          feedStock = 0;
-        }
-
-        transformed.stock = feedStock;
-        transformed.orderable = feedStock > 0;
-        // transformed.status = feedStock > 0 ? 'active' : 'inactive';
+      } else {
+        // Nincs képlet: nettó = basePrice * (1-discount) * (1+margin)
+        net = basePrice.times(discountFactor).times(marginFactor);
+        gross = net.times(vatFactor);
       }
+    } catch {
+      // Biztonságos fallback
+      net = basePrice.times(discountFactor).times(marginFactor);
+      gross = net.times(vatFactor);
+    }
 
-			return transformed;
-		})
-	);
+    // 4) Devizakonverzió (nettón), majd bruttó újraszámolása
+    if (doConvert && targetCurrency) {
+      try {
+        const netConv = await convertCurrency(net.toNumber(), processConfig.currency, targetCurrency);
+        net = Big(netConv);
+        gross = net.times(vatFactor); // bruttó mindig nettóból
+      } catch {
+        // ha gond van árfolyammal, marad az eredeti deviza
+      }
+    }
 
-	return transformedList;
+    // 5) Kerekítés (nettó és bruttó külön)
+    if (net.lte(0)) net = basePrice.gt(0) ? basePrice : Big(1);
+    if (gross.lte(0)) gross = net.times(vatFactor);
+
+    const netRounded   = roundToUnit(net,   rounding);
+    const grossRounded = roundToUnit(gross, rounding);
+
+    // 6) Kimeneti mezők
+    transformed.price_net   = netRounded.toString();
+    transformed.price_gross = grossRounded.toString();
+
+    // Kompatibilitás: ha valahol csak "price" kell, tegyük a bruttót
+    transformed.price = transformed.price_gross;
+
+    // 7) Készlet normalizálás + küszöb
+    const stockSrcKey = Object.entries(fieldMapping).find(([, dst]) => {
+      const v = String(dst || '').toLowerCase();
+      return v === 'stock' || v.includes('stock') || v.includes('készlet') || v.includes('quantity') || v === 'qty';
+    })?.[0];
+
+    if (stockSrcKey) {
+      const raw = record[stockSrcKey];
+      let feedStock = 0;
+      if (raw !== undefined && raw !== null && raw !== '') {
+        const cleaned = String(raw).replace(',', '.').replace(/[^0-9.\-]/g, '').trim();
+        const n = Number(cleaned);
+        feedStock = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+      }
+      if (Number.isFinite(stockThreshold) && feedStock < stockThreshold) {
+        feedStock = 0;
+      }
+      transformed.stock = feedStock;
+      transformed.orderable = feedStock > 0;
+    }
+
+    return transformed;
+  }));
+
+  return transformedList;
 }
 
 module.exports = transformData;

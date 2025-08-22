@@ -169,10 +169,19 @@ export default {
     shops: { type: Array, required: true },
     initial: { type: Object, required: true },
   },
+  
   setup(props, { emit }) {
     const form = reactive({ vat: 27, stockThreshold: 0, ...props.initial });
-    const mappingKeys = reactive([...Object.keys(form.fieldMapping)]);
-    const mappingValues = reactive([...Object.values(form.fieldMapping)]);
+    const DEFAULT_MAPPINGS = {
+      sku: "sku",
+      price: "price",
+      stock: "stock"
+    };
+    // initial fieldMapping összeolvasztása a kötelezőkkel
+    const initialMapping = { ...DEFAULT_MAPPINGS, ...(form.fieldMapping || {}) };
+
+    const mappingKeys = reactive([...Object.keys(initialMapping)]);
+    const mappingValues = reactive([...Object.values(initialMapping)]);
     const dryRun = ref(form.dryRun || false);
 
     // ---- Képlet tokenek (belül: TECH tokenek; UI: magyar feliratok) ----

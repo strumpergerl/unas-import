@@ -8,7 +8,7 @@
 </template>
   
 
-<script>
+<script lang="js">
 import api from '../services/api';
 import { ElMessage } from 'element-plus';
 import { VideoPlay } from '@element-plus/icons-vue';
@@ -40,5 +40,5 @@ export default {
       }
     }
   }
-};
+}
 </script>

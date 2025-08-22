@@ -2,7 +2,7 @@
   {
     "vat": 27,
     "stockThreshold": 2,
-    "processId": "shop1_2025-01-01_vevor",
+    "processId": "shop3_2025-01-01_vevor",
     "shopId": "shop3",
     "displayName": "Vevor - Házravaló szinkron22",
     "feedUrl": "https://pepitapocok.hu/share/test-feed.xlsx",

@@ -11,18 +11,29 @@
   ],
   "scripts": {
     "install:all": "npm install",
-    "dev:backend": "npm --workspace=backend run dev",
-    "dev:frontend": "npm --workspace=frontend run dev",
-    "dev": "pm2 start ecosystem.config.js --env development && concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "devNoPm2": "concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build:frontend": "npm --workspace=frontend run build",
-    "start:backend": "npm --workspace=backend run start",
+
+    "dev:backend": "cross-env NODE_ENV=development npm --workspace=backend run dev",
+    "dev:frontend": "cross-env NODE_ENV=development npm --workspace=frontend run dev",
+
+    "dev": "cross-env NODE_ENV=development pm2 start ecosystem.config.js --env development && concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+
+    "devNoPm2": "cross-env NODE_ENV=development concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+
+    "build:frontend": "cross-env NODE_ENV=production npm --workspace=frontend run build",
+
+    "start:backend": "cross-env NODE_ENV=production npm --workspace=backend run start",
+
     "install-start": "npm run install:all && npm run build:frontend && npm run start:backend",
     "start": "npm run install:all && npm run build:frontend && npm run start:backend",
-    "build-install-start": "npm run install:all && npm run build:frontend && npm run start:backend"
+
+    "build-install-start": "npm run install:all && npm run build:frontend && npm run start:backend",
+
+    "prod:pm2": "pm2 start ecosystem.config.js --env production",
+    "stop:pm2": "pm2 delete all || true"
   },
   "devDependencies": {
     "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
     "rollup": "^4.14.3"
   },
   "dependencies": {

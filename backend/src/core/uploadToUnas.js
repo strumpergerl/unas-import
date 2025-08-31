@@ -12,11 +12,11 @@ const { parse: csvParse } = require('csv-parse/sync');
 
 // --- Beállítások ENV-ből (jó defaultokkal)
 const BASE_URL = process.env.UNAS_API_URL;
-const UNAS_TIMEOUT_MS = Number(process.env.UNAS_TIMEOUT_MS ?? 120000);
-const UNAS_DOWNLOAD_TIMEOUT_MS = Number(process.env.UNAS_DOWNLOAD_TIMEOUT_MS ?? 120000);
-const UNAS_PRODUCTDB_MAX_RETRIES = Number(process.env.UNAS_PRODUCTDB_MAX_RETRIES ?? 3);
-const UNAS_PRODUCTDB_BACKOFF_MS = Number(process.env.UNAS_PRODUCTDB_BACKOFF_MS ?? 3000);
-const UNAS_INDEX_TTL_HOURS = Number(process.env.UNAS_INDEX_TTL_HOURS ?? 24);
+const UNAS_TIMEOUT_MS = Number(process.env.UNAS_TIMEOUT_MS);
+const UNAS_DOWNLOAD_TIMEOUT_MS = Number(process.env.UNAS_DOWNLOAD_TIMEOUT_MS);
+const UNAS_PRODUCTDB_MAX_RETRIES = Number(process.env.UNAS_PRODUCTDB_MAX_RETRIES);
+const UNAS_PRODUCTDB_BACKOFF_MS = Number(process.env.UNAS_PRODUCTDB_BACKOFF_MS);
+const UNAS_INDEX_TTL_HOURS = Number(process.env.UNAS_INDEX_TTL_HOURS);
 
 const CACHE_DIR = path.join(process.cwd(), 'cache');
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });

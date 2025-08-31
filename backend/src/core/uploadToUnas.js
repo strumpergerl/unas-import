@@ -11,7 +11,7 @@ const { loadShopById } = require('../api/loadShops');
 const { parse: csvParse } = require('csv-parse/sync');
 
 // --- Beállítások ENV-ből (jó defaultokkal)
-const BASE_URL = process.env.UNAS_API_URL || 'https://api.unas.eu/shop';
+const BASE_URL = process.env.UNAS_API_URL;
 const UNAS_TIMEOUT_MS = Number(process.env.UNAS_TIMEOUT_MS ?? 120000);
 const UNAS_DOWNLOAD_TIMEOUT_MS = Number(process.env.UNAS_DOWNLOAD_TIMEOUT_MS ?? 120000);
 const UNAS_PRODUCTDB_MAX_RETRIES = Number(process.env.UNAS_PRODUCTDB_MAX_RETRIES ?? 3);

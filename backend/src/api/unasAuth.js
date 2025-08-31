@@ -2,7 +2,7 @@
 const axios = require('axios');
 const xml2js = require('xml2js');
 
-const BASE = process.env.UNAS_API_URL || 'https://api.unas.eu/shop';
+const BASE = process.env.UNAS_API_URL;
 const parser = new xml2js.Parser({ explicitArray: false });
 const builder = new xml2js.Builder({ headless: true });
 

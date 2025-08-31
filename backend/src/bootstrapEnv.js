@@ -4,7 +4,6 @@ const path = require('path');
 const dotenv = require('dotenv');
 
 function findEnv(startDir, envFile) {
-  // Felfelé sétál a fájlrendszerben, amíg talál .env-t vagy .env.{NODE_ENV}-et
   let dir = startDir;
   for (let i = 0; i < 6; i++) { // max 6 szint
     const p = path.join(dir, envFile);
@@ -16,10 +15,8 @@ function findEnv(startDir, envFile) {
   return null;
 }
 
-// 1) Döntsük el, melyik env fájlt keressük
-const nodeEnv = process.env.NODE_ENV || 'development';
+const nodeEnv = process.env.NODE_ENV;
 const prioritized = [`.env.${nodeEnv}`, '.env.local', '.env']; 
-// sorrend: .env.development vagy .env.production → .env.local → .env
 
 let candidate = null;
 for (const fname of prioritized) {

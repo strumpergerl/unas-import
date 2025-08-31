@@ -103,7 +103,7 @@
 						shopId: '',
 						displayName: '',
 						feedUrl: '',
-						frequency: '1h',
+						frequency: '24h',
 						currency: 'EUR',
 						targetCurrency: 'HUF',
 						pricingFormula: '',

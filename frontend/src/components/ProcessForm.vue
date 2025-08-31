@@ -21,7 +21,7 @@
 
     <el-form-item label="Szinkron gyakorisága">
       <el-select v-model="form.frequency">
-        <el-option v-for="opt in ['3h','6h','12h','24h']" :key="opt" :label="opt" :value="opt" />
+        <el-option v-for="opt in ['3h','6h','12h','24h','48h','72h']" :key="opt" :label="opt" :value="opt" />
       </el-select>
     </el-form-item>
 

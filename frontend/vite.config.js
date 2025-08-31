@@ -12,10 +12,12 @@ const isCI = process.env.CI === 'true'
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: 5173,
     proxy: {
-      '/api': process.env.VITE_API_URL || 'http://localhost:3000/api'
-    }
+      '/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
   },
   base: './',
   build: {

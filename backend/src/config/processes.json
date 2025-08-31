@@ -6,7 +6,7 @@
     "shopId": "shop3",
     "displayName": "Vevor - Házravaló szinkron22",
     "feedUrl": "https://pepitapocok.hu/share/test-feed.xlsx",
-    "frequency": "3h",
+    "frequency": "24h",
     "currency": "EUR",
     "convertCurrency": true,
     "targetCurrency": "HUF",

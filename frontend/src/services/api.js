@@ -1,8 +1,10 @@
 // frontend/src/services/api.js
 import axios from 'axios';
 
+const base = import.meta.env.VITE_API_BASE_URL || '/api';
+
 const api = axios.create({
-  baseURL: '/api',         // a Vite-dev proxy vagy a backend statikus útvonal
+  baseURL: base,
   headers: { 'Content-Type': 'application/json' }
 });
 

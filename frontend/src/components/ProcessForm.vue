@@ -58,9 +58,9 @@
 				style="max-width: 200px"
 				placeholder="Pl. 3"
 			/>
-			<small style="display: block; margin-top: 6px">
-				Ha a feed készlet ennél kisebb, a termék ne legyen rendelhető.
-			</small>
+			<span class="hint"
+				>Ha a termék készlete ennél kisebb, akkor a termék inaktív lesz az
+				UNAS-ban.</span>
 		</el-form-item>
 
 		<!-- Árképzés képlete: tagek az input prefixében, kattintással törlés -->

@@ -6,7 +6,7 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const http = require('http');
 const https = require('https');
-const { getBearerTokenForShop } = require('../services/unas');
+const { getBearerToken } = require('../services/unas');
 const { loadShopById } = require('../services/shops');
 const { parse: csvParse } = require('csv-parse/sync');
 
@@ -234,7 +234,7 @@ function addMatchesFromParamNode(idx, sku, paramNode) {
     const looksLike = /beszerzési.*cikkszám|supplier.*(code|sku)|cikkszáma/i.test(name);
 
     if (isTargetId || looksLike) {
-      if (!idx.has(value)) idx.set(value, sku);
+      if (!idx.has(value)) idx.set(value, { sku, cikkszam: '', netto: '', brutto: '' });
     }
   }
 }
@@ -354,7 +354,7 @@ async function tryBuildIndexFromProductDB(bearer) {
     header.find((h) => /cikksz|cikkszám/i.test(String(h))); // biztonsági fallback
 
   // Beszállítói kód oszlop (Param#86891 vagy megnevezés alapján)
-  const paramCol = findSupplierCodeColumn(header, null);
+  const paramCol = findSupplierCodeColumn(header, processConfig);
 
   // Cél oszlopok (rugalmas, ékezetekkel)
   const cikkszamCol = header.find((h) => /^cikkszám$/i.test(h));
@@ -376,7 +376,7 @@ async function tryBuildIndexFromProductDB(bearer) {
       {
         cikkszamCol: !!cikkszamCol,
         nettoCol: !!nettoCol,
-        bruttoCol: !!bruttoCol,
+        bruttoCol: !!bruttoCol
       }
     );
   }
@@ -465,7 +465,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
   const { dryRun = false, shopId } = processConfig;
 
   const shop = shopConfig || loadShopById(shopId);
-  const bearer = await getBearerTokenForShop(shop.shopId, shop.apiKey);
+  const bearer = await getBearerToken(shop.apiKey);
 
   // Statisztikák
   const stats = {

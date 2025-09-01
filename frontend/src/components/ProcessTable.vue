@@ -8,10 +8,11 @@
       style="width: 100%"
     >
       <el-table-column
-      width="200"
+        width="80"
         prop="processId"
-        label="ID"
+        :label="'ID'"
         sortable
+        show-overflow-tooltip
       />
       <el-table-column
         prop="displayName"

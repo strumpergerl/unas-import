@@ -3,31 +3,34 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-function findEnv(startDir, envFile) {
-  let dir = startDir;
-  for (let i = 0; i < 6; i++) { // max 6 szint
-    const p = path.join(dir, envFile);
-    if (fs.existsSync(p)) return p;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+function tryLoadEnv(file) {
+  if (fs.existsSync(file)) {
+    dotenv.config({ path: file, override: true });
+    console.log(`[ENV] Loaded: ${file} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+    return true;
   }
-  return null;
+  return false;
 }
 
-const nodeEnv = process.env.NODE_ENV;
-const prioritized = [`.env.${nodeEnv}`, '.env.local', '.env']; 
+(function ensureEnv() {
+  const NODE_ENV = process.env.NODE_ENV || 'development';
 
-let candidate = null;
-for (const fname of prioritized) {
-  candidate = findEnv(__dirname, fname) || findEnv(process.cwd(), fname);
-  if (candidate) break;
-}
+  // lehetséges helyek (mindig a repo gyökér a prioritás)
+  const repoRoot = path.resolve(__dirname, '..', '..'); // <repo>/
+  const candidates = [
+    path.join(repoRoot, `.env.${NODE_ENV}`),
+    path.join(repoRoot, '.env'),
+    path.resolve(process.cwd(), `.env.${NODE_ENV}`),
+    path.resolve(process.cwd(), '.env'),
+  ];
 
-if (candidate) {
-  dotenv.config({ path: candidate });
-  console.log(`[ENV] Loaded: ${candidate} (NODE_ENV=${nodeEnv})`);
-} else {
-  console.warn('[ENV] WARN: nem találtam .env fájlt.');
-  console.warn('[ENV] CWD:', process.cwd(), ' __dirname:', __dirname);
-}
+  let loaded = false;
+  for (const file of candidates) {
+    if (tryLoadEnv(file)) { loaded = true; break; }
+  }
+
+  if (!loaded) {
+    console.warn('[ENV] WARN: nem találtam .env fájlt.');
+    console.warn(`[ENV] CWD: ${process.cwd()}  __dirname: ${__dirname}`);
+  }
+})();

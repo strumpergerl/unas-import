@@ -29,7 +29,7 @@
 			
 			<!-- Modal a ProcessForm számára -->
 			<el-dialog
-				title="Szinkron folyamat szerkesztése"
+				:title="`Szinkron folyamat szerkesztése ${selectedShop ? ' - ' + (shops.find(s => s.shopId === selectedShop)?.name || '') : ''}`"
 				v-model="showForm"
 				width="800px"
 				@close="showForm = false"
@@ -38,9 +38,11 @@
 					:key="editedProcess.processId || 'new'"
 					:shops="shops"
 					:initial="editedProcess"
+					:activeShopId="selectedShop || ''"
 					@save="saveProcess"
 					@cancel="showForm = false"
 				/>
+
 			</el-dialog>
 		</el-main>
 	</el-container>
@@ -100,7 +102,7 @@
 				} else {
 					editedProcess.value = {
 						processId: '',
-						shopId: '',
+						shopId: selectedShop.value || '',
 						displayName: '',
 						feedUrl: '',
 						frequency: '24h',

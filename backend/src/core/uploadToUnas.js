@@ -6,8 +6,8 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const http = require('http');
 const https = require('https');
-const { getBearerTokenForShop } = require('../api/unasAuth');
-const { loadShopById } = require('../api/loadShops');
+const { getBearerTokenForShop } = require('../services/unas');
+const { loadShopById } = require('../services/shops');
 const { parse: csvParse } = require('csv-parse/sync');
 
 // --- Beállítások ENV-ből (jó defaultokkal)

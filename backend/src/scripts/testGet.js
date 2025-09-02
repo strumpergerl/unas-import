@@ -1,6 +1,13 @@
 // node backend/src/scripts/getProductDB_simple.js
 // Egyszerű UNAS ProductDB lekérés BEÉGETETT adatokkal.
 
+// ── ÁLLÍTHATÓ KONSTANSOK ──────────────────────────────────────────────────────
+const API_KEY      = 'adf156708336e8897b85b661bcd93294fe2eda73';   // pl. "adf156...."
+const UNAS_SHOP_ID = '60391';                  // pl. "60391"
+const UNAS_BASE    = 'https://api.unas.eu/shop';
+const OUTFILE      = ''; // ha üres: csak kiírjuk a linket; ha pl. 'productdb.csv': le is töltjük
+// ───────────────────────────────────────────────────────────────────────────────
+
 
 const https = require("https");
 

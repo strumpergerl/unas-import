@@ -1,6 +1,6 @@
 // backend/src/scheduler.js
 const cron = require('node-cron');
-const { runProcessById, pruneOldRuns } = require('./runner');
+const { runProcessById } = require('./runner');
 const { db } = require('./db/firestore');
 
 const activeJobs = new Map();
@@ -50,21 +50,6 @@ function scheduleProcess(proc) {
   }
 }
 
-async function scheduleProcesses() {
-  try {
-    // 1) jelenlegi process list betöltése
-    const snap = await db.collection('processes').get();
-    const processes = snap.docs.map(d => ({ processId: d.id, ...d.data() }));
-    // 2) ütemezés
-    rescheduleAll(processes);
-    // 3) élő figyelés változásokra
-    watchProcesses();
-    console.log('[SCHEDULER] scheduleProcesses kész');
-  } catch (err) {
-    console.error('[SCHEDULER] scheduleProcesses hiba:', err?.message || err);
-  }
-}
-
 /**
  * Összes process újraütemezése (pl. Firestore snapshot után)
  */
@@ -81,25 +66,6 @@ function rescheduleAll(processes) {
 }
 
 /**
- * Napi egyszeri log prune ütemezése
- * (30 napnál régebbi run-ok törlése)
- * */
-
-function scheduleLogPrune() {
-  // Minden nap 03:30-kor
-  cron.schedule('30 3 * * *', async () => {
-    try {
-      const deleted = await pruneOldRuns(30);
-      if (deleted) {
-        console.log(`[SCHEDULER] Log prune: ${deleted} régi run törölve`);
-      }
-    } catch (e) {
-      console.error('[SCHEDULER] Log prune hiba:', e?.message || e);
-    }
-  }, { timezone: 'Europe/Budapest' });
-}
-
-/**
  * Firestore figyelése változásokra
  */
 function watchProcesses() {
@@ -109,4 +75,4 @@ function watchProcesses() {
   });
 }
 
-module.exports = { scheduleProcess, rescheduleAll, watchProcesses, scheduleLogPrune, scheduleProcesses };
+module.exports = { scheduleProcess, rescheduleAll, watchProcesses };

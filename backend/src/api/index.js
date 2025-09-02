@@ -8,10 +8,12 @@ const { fetchProductDbHeaders } = require('../services/unas');
 const { loadShopById } = require('../services/shops');
 const downloadFile = require('../core/downloadFile');
 const parseData = require('../core/parseData');
+
+// opcionális: egyéb core funkciók, ha használod
 const transformData = require('../core/transformData');
 const uploadToUnas = require('../core/uploadToUnas');
 const rateUpdater = require('../utils/rateUpdater');
-const { getLogs, addRun } = require('../runner');
+const { getLogs } = require('../runner');
 
 const router = express.Router();
 router.use(express.json());
@@ -21,6 +23,7 @@ function safeJson(res, status, payload) {
 	try {
 		return res.status(status).json(payload);
 	} catch {
+		// ha bármi fura történik, legalább egy minimal válasz menjen
 		res
 			.status(500)
 			.set('Content-Type', 'application/json; charset=utf-8')
@@ -62,7 +65,6 @@ router.get('/config', async (_req, res) => {
 				error: 'Firestore nincs inicializálva.',
 			});
 		}
-
 		const shopsSnap = await db.collection('shops').get();
 		const shops = shopsSnap.docs.map((d) => ({ shopId: d.id, ...d.data() }));
 
@@ -117,32 +119,11 @@ router.get('/health', (_req, res) => {
 
 // --- FUTTATÁS INDÍTÁSA ---
 router.post('/run', async (req, res) => {
-	const startedAt = new Date();
-	const run = {
-		id: `manual_${startedAt.toISOString()}`,
-		processId: null,
-		processName: null,
-		shopId: null,
-		shopName: null,
-		startedAt: startedAt.toISOString(),
-		finishedAt: null,
-		durationMs: null,
-		stages: { downloadMs: 0, parseMs: 0, transformMs: 0, uploadMs: 0 },
-		counts: {
-			input: 0,
-			output: 0,
-			modified: 0,
-			skippedNoKey: 0,
-			skippedNotFound: 0,
-			failed: 0,
-		},
-		items: [],
-		error: null,
-	};
-
 	try {
+		// 1) payload
 		const {
 			processId,
+			// opcionális: közvetlen futtatáshoz body-ban kapott konfig
 			feedUrl,
 			fieldMapping = {},
 			pricingFormula = '',
@@ -152,35 +133,35 @@ router.post('/run', async (req, res) => {
 			priceMargin = 0,
 			dryRun = true,
 			shopId,
+			// ha a frontend előre elkészített rekordokat küldene:
 			records,
 		} = req.body || {};
 
-		// Process betöltés Firestore-ból, ha csak processId jött
-		let cfg = null;
+		// 2) process betöltés Firestore-ból, ha csak processId jött
+		let procCfg = null;
 		if (processId && !feedUrl && !records) {
-			const doc = await db.collection('processes').doc(String(processId)).get();
-			if (!doc.exists)
+			const doc = await db.collection('processes').doc(processId).get();
+			if (!doc.exists) {
 				return res
 					.status(404)
 					.json({ error: `Process nem található: ${processId}` });
-			cfg = { processId: doc.id, ...doc.data() };
-		} else {
-			cfg = {
-				processId: processId || null,
-				feedUrl,
-				fieldMapping,
-				pricingFormula,
-				rounding,
-				vat,
-				discount,
-				priceMargin,
-				dryRun,
-				shopId,
-			};
+			}
+			procCfg = { processId: doc.id, ...doc.data() };
 		}
 
-		run.processId = cfg.processId;
-		run.processName = cfg.displayName || cfg.processId || 'Ad hoc futás';
+		// 3) végső konfig (Firestore-ból vagy a body-ból)
+		const cfg = procCfg ?? {
+			processId: processId || null,
+			feedUrl,
+			fieldMapping,
+			pricingFormula,
+			rounding,
+			vat,
+			discount,
+			priceMargin,
+			dryRun,
+			shopId,
+		};
 
 		if (!cfg.feedUrl && !Array.isArray(records)) {
 			return res
@@ -188,115 +169,42 @@ router.post('/run', async (req, res) => {
 				.json({ error: 'Hiányzik a feedUrl (vagy a records)!' });
 		}
 
-		// Shop névhez / UNAS auth-hoz
+		// 4) shop betöltése (ha kell az UNAS auth-hoz)
 		const shop = cfg.shopId ? await loadShopById(cfg.shopId) : null;
-		if (shop) {
-			run.shopId = shop.shopId;
-			run.shopName = shop.name;
-		}
 
-		// Letöltés + parse
-		const t1 = Date.now();
+		// 5) bemenet (records vagy letöltés + parse)
 		let inputRows = Array.isArray(records) ? records : [];
 		if (!inputRows.length) {
 			const buf = await downloadFile(cfg.feedUrl);
-			const t2 = Date.now();
+			// egységes: a parseData második paramétere legyen objektum
+			// (ha a te parseData-ed sima stringet vár, itt cseréld { feedUrl: cfg.feedUrl } -> cfg.feedUrl)
 			inputRows = await parseData(buf, { feedUrl: cfg.feedUrl });
-			const t3 = Date.now();
-			run.stages.downloadMs = t2 - t1;
-			run.stages.parseMs = t3 - t2;
 		}
-		run.counts.input = inputRows.length;
+		const inputCount = inputRows.length;
 
-		// Transzformáció
-		const t4 = Date.now();
+		// 6) transzformáció (mező-mapping, árképzés, stb.)
 		const transformed = await transformData(inputRows, cfg);
-		const t5 = Date.now();
-		run.stages.transformMs = t5 - t4;
-		run.counts.output = transformed.length;
+		const outputCount = transformed.length;
 
-		// Feltöltés
-		const t6 = Date.now();
+		// 7) feltöltés UNAS-ba csak ha NEM dryRun
 		let uploadResult = null;
-		if (!cfg.dryRun) uploadResult = await uploadToUnas(transformed, cfg, shop);
-		const t7 = Date.now();
-		run.stages.uploadMs = t7 - t6;
-
-		// Számlálók + tételek (ha az uploadToUnas részletes statot ad vissza)
-		if (uploadResult) {
-			run.counts.modified = uploadResult?.modified?.length || 0;
-			run.counts.skippedNoKey = uploadResult?.skippedNoKey?.length || 0;
-			run.counts.skippedNotFound = uploadResult?.skippedNotFound?.length || 0;
-			run.counts.failed = uploadResult?.failed?.length || 0;
-
-			for (const m of uploadResult?.modified || []) {
-				run.items.push({
-					key: m.key ?? null,
-					sku: m.sku ?? null,
-					action: 'modify',
-					changes: m.changes || {},
-					before: m.before ?? null,
-					after: m.after ?? null,
-				});
-			}
-			for (const s of uploadResult?.skippedNoKey || []) {
-				run.items.push({
-					key: s.key ?? null,
-					sku: null,
-					action: 'skip',
-					changes: {},
-					before: null,
-					after: null,
-					error: s.reason || 'No key',
-				});
-			}
-			for (const s of uploadResult?.skippedNotFound || []) {
-				run.items.push({
-					key: s.key ?? null,
-					sku: null,
-					action: 'skip',
-					changes: {},
-					before: null,
-					after: null,
-					error: s.reason || 'Not found',
-				});
-			}
-			for (const f of uploadResult?.failed || []) {
-				run.items.push({
-					key: f.key ?? null,
-					sku: f.sku ?? null,
-					action: 'fail',
-					changes: {},
-					before: null,
-					after: null,
-					error: f.error || f.statusText || 'Failed',
-				});
-			}
+		if (!cfg.dryRun) {
+			// a te modulod szignatúrája szerint hagyom a 3 paramétert
+			uploadResult = await uploadToUnas(transformed, cfg, shop);
 		}
 
-		res.json({
+		// 8) válasz
+		return res.json({
 			ok: true,
 			processId: cfg.processId || null,
-			counts: { input: run.counts.input, output: run.counts.output },
+			counts: { input: inputCount, output: outputCount },
 			sampleIn: inputRows.slice(0, 3),
 			sampleOut: transformed.slice(0, 3),
 			upload: uploadResult,
 		});
 	} catch (e) {
-		run.error = e?.message || 'Ismeretlen hiba';
 		console.error('[POST /api/run] error:', e);
-		res.status(500).json({ error: run.error });
-	} finally {
-		const finished = new Date();
-		run.finishedAt = finished.toISOString();
-		run.durationMs = finished - new Date(run.startedAt);
-
-		try {
-			await addRun(run);
-			console.log('[API/RUN] Log mentve:', run.id);
-		} catch (e) {
-			console.error('[API/RUN] addRun HIBA:', e?.message || e);
-		}
+		return res.status(500).json({ error: e.message || 'Ismeretlen hiba' });
 	}
 });
 
@@ -364,9 +272,9 @@ router.delete('/config/:processId', async (req, res) => {
 });
 
 // --- NAPLÓK LISTÁZÁSA ---
-router.get('/logs', async (_req, res) => {
+router.get('/logs', (_req, res) => {
 	try {
-		const list = await getLogs(100);
+		const list = typeof getLogs === 'function' ? getLogs() : [];
 		return safeJson(res, 200, Array.isArray(list) ? list : []);
 	} catch (e) {
 		console.error('[GET /api/logs] error:', e);
@@ -374,23 +282,10 @@ router.get('/logs', async (_req, res) => {
 	}
 });
 
-// --- NAPLÓK PRUNE (opcionális kézi hívás) ---
-router.post('/logs/prune', async (req, res) => {
-	const days = Number(req.body?.days ?? 30);
-	try {
-		const { pruneOldRuns } = require('../runner');
-		const deleted = await pruneOldRuns(days);
-		return res.status(200).json({ ok: true, deleted, days });
-	} catch (e) {
-		console.error('[POST /api/logs/prune] error:', e);
-		return res.status(500).json({ error: e?.message || 'Hiba' });
-	}
-});
-
 // --- DEVIZAÁRFOLYAMOK LISTÁZÁSA ---
 router.get('/rates', (_req, res) => {
 	try {
-		const getter = rateUpdater?.getRates || rateUpdater;
+		const getter = rateUpdater?.getRates || rateUpdater; // ha a modul közvetlen gettert exportál
 		if (typeof getter !== 'function') {
 			return safeJson(res, 503, {
 				rates: {},
@@ -398,10 +293,11 @@ router.get('/rates', (_req, res) => {
 				error: 'Árfolyam szolgáltatás nincs inicializálva.',
 			});
 		}
-		const out = getter() || {};
-		const rates = out.rates || {};
-		const lastUpdated = out.lastUpdated || null;
-		return safeJson(res, 200, { rates, lastUpdated });
+		const { rates, lastUpdated } = getter() || { rates: {}, lastUpdated: null };
+		return safeJson(res, 200, {
+			rates: rates || {},
+			lastUpdated: lastUpdated || null,
+		});
 	} catch (e) {
 		console.error('[GET /api/rates] error:', e);
 		return safeJson(res, 500, {

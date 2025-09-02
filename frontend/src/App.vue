@@ -35,7 +35,7 @@
 				><el-icon style="vertical-align: middle; margin-right: 4px;"><Plus /></el-icon>Új szinkron létrehozása</el-button
 			>
 
-			<LogsViewer :logs="logs" />
+			<LogsViewer />
 
 			<!-- Modal a ProcessForm számára -->
 			<el-dialog

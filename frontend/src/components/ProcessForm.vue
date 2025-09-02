@@ -51,17 +51,18 @@
 
 		<!-- Raktárkészlet (küszöb) – az árképzés elé -->
 		<el-form-item label="Raktárkészlet (küszöb)">
-			<el-input-number
-				v-model="form.stockThreshold"
-				:min="0"
-				:step="1"
-				style="max-width: 200px"
-				placeholder="Pl. 3"
-			/>
-			<span class="hint"
-				>Ha a termék készlete ennél kisebb, akkor a termék inaktív lesz az
-				UNAS-ban.</span>
+			<el-tooltip content="Csak azokat a termékeket importáljuk, amelyek raktárkészlete legalább ennyi." placement="top">
+				<el-input-number
+					v-model="form.stockThreshold"
+					:min="0"
+					:step="1"
+					style="max-width: 200px"
+					placeholder="Pl. 3"
+				/>
+			</el-tooltip>
 		</el-form-item>
+
+		<el-divider></el-divider>
 
 		<!-- Árképzés képlete: tagek az input prefixében, kattintással törlés -->
 		<el-form-item label="Árképzés képlete">
@@ -185,69 +186,97 @@
 			</el-button-group>
 		</el-form-item>
 
-		<el-form-item label="Mezők hozzáadása">
+		<el-divider></el-divider>
+
+		<el-form-item
+			label="Mezők hozzáadása"
+			label-position="top"
+			class="field-mapping"
+		>
 			<div
 				v-for="(_, i) in mappingKeys"
 				:key="i"
-				class="flex mb-2"
+				class="mapping-row flex mb-2"
+				:class="{ 'active-key-row': selectedKeyIndex === i }"
 				style="margin-bottom: 1rem"
 			>
-				<el-row :gutter="20">
-					<el-col :span="11">
-						<el-select
-							v-model="mappingKeys[i]"
-							filterable
-							remote
-							:remote-method="onFeedFilter"
-							:loading="feedFieldsLoading"
-							:disabled="!feedFieldsLoading && (Array.isArray(feedOptionsFiltered) ? feedOptionsFiltered.length === 0 : true)"
-							placeholder="Feed mező keresése…"
-							class="w-full"
+				<el-row :gutter="20" style="width: 100%">
+					<el-tooltip content="Kulcs mező (összerendeléshez)" placement="right">
+						<el-button
+							:type="selectedKeyIndex === i ? 'success' : 'default'"
+							size="default"
+							@click="selectedKeyIndex = i"
+						>
+							<el-icon><Lock /></el-icon>
+						</el-button>
+					</el-tooltip>
+					<el-select
+						v-model="mappingKeys[i]"
+						filterable
+						remote
+						:remote-method="onFeedFilter"
+						:loading="feedFieldsLoading"
+						:disabled="
+							!feedFieldsLoading &&
+							(Array.isArray(feedOptionsFiltered)
+								? feedOptionsFiltered.length === 0
+								: true)
+						"
+						placeholder="Feed mező keresése…"
+						class="w-full"
+						style="flex: 1"
+					>
+						<el-option
+							v-for="opt in Array.isArray(feedOptionsFiltered)
+								? feedOptionsFiltered
+								: []"
+							:key="opt.value"
+							:label="opt.label"
+							:value="opt.value"
+						/>
+					</el-select>
+					<el-select
+						v-model="mappingValues[i]"
+						filterable
+						remote
+						:remote-method="onSelectFilter"
+						:loading="unasFieldsLoading"
+						placeholder="UNAS mező keresése…"
+						class="w-full"
+						style="flex: 1"
+					>
+						<el-option-group
+							v-for="grp in Array.isArray(groupedOptionsFiltered)
+								? groupedOptionsFiltered
+								: []"
+							:key="grp.label"
+							:label="grp.label"
 						>
 							<el-option
-								v-for="opt in Array.isArray(feedOptionsFiltered) ? feedOptionsFiltered : []"
+								v-for="opt in Array.isArray(grp.options) ? grp.options : []"
 								:key="opt.value"
 								:label="opt.label"
 								:value="opt.value"
 							/>
-						</el-select>
-					</el-col>
-
-					<el-col :span="11">
-						<el-select
-							v-model="mappingValues[i]"
-							filterable
-							remote
-							:remote-method="onSelectFilter"
-							:loading="unasFieldsLoading"
-							placeholder="UNAS mező keresése…"
-							class="w-full"
-						>
-							<el-option-group
-								v-for="grp in Array.isArray(groupedOptionsFiltered) ? groupedOptionsFiltered : []"
-								:key="grp.label"
-								:label="grp.label"
-							>
-								<el-option
-									v-for="opt in Array.isArray(grp.options) ? grp.options : []"
-									:key="opt.value"
-									:label="opt.label"
-									:value="opt.value"
-								/>
-							</el-option-group>
-						</el-select>
-					</el-col>
-
-					<el-col :span="1">
-						<el-button type="danger" icon="Delete" @click="removeMapping(i)" />
-					</el-col>
+						</el-option-group>
+					</el-select> 
+					<el-button type="danger" icon="Delete" @click="removeMapping(i)" />
 				</el-row>
 			</div>
-
-			<el-button type="primary" link @click="addMapping">
-				+ Új mező hozzáadása
-			</el-button>
+			<div style="display: flex; justify-content: center; margin-top: 1rem; width: 100%">
+				<el-button type="primary" text @click="addMapping">
+					<el-icon style="vertical-align: middle; margin-right: 4px;"><Plus /></el-icon>
+					<strong>Új mezők hozzáadása</strong>
+				</el-button>
+			</div>
 		</el-form-item>
+
+		<div class="hint" style="margin-bottom: 1rem;">
+			<el-icon size="large" style="vertical-align: middle; margin-right: 4px;">
+				<InfoFilled />
+			</el-icon>
+			Itt tudod összerendelni a feed mezőit az UNAS mezőkkel. A <el-icon style="vertical-align: middle;"><Lock /></el-icon> gombbal jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
+		</div>
 
 		<div style="padding: 20px; background: #f5f5f5">
 			<el-form-item style="margin-top: 20px">
@@ -289,7 +318,10 @@
 		},
 
 		setup(props, { emit }) {
-			const form = reactive({ vat: 27, stockThreshold: 0, ...props.initial });
+			const form = reactive({ vat: 27, stockThreshold: 1, ...props.initial });
+
+			// Kulcs mező (keyField) kezelése
+			const selectedKeyIndex = ref(0);
 
 			// Aktív shop név
 			const activeShopIdRef = toRef(props, 'activeShopId'); // reaktív
@@ -674,7 +706,6 @@
 				mappingKeys.splice(index, 1);
 				mappingValues.splice(index, 1);
 			}
-
 			function submit() {
 				const fm = {};
 				mappingKeys.forEach((k, i) => {
@@ -682,6 +713,12 @@
 					if (k && v) fm[k] = v; // 1:1 mentés
 				});
 				form.fieldMapping = fm;
+
+				// Kulcspár mentése
+				form.keyFields = {
+					feed: mappingKeys[selectedKeyIndex.value] || '',
+					unas: mappingValues[selectedKeyIndex.value] || '',
+				};
 
 				form.pricingFormula = tokensToText(pricingTokens.value);
 
@@ -700,11 +737,15 @@
 			return {
 				...toRefs(form),
 				form,
+				selectedKeyIndex,
 				mappingKeys,
 				mappingValues,
 				removeMapping,
 				addMapping,
 				submit,
+				dryRun,
+				activeShopName,
+				activeShopId: safeShopId,
 				dryRun,
 				activeShopName,
 				activeShopId: safeShopId,
@@ -808,9 +849,42 @@
 		gap: 6px;
 		flex-wrap: wrap;
 	}
-	.hint {
-		display: block;
-		font-size: 12px;
-		opacity: 0.8;
+	.hint{
+		background-color: var(--el-color-warning-light-8);
+		border: 2px dashed var(--el-color-warning-light-3);
+		padding: .5rem;
+		margin-top: 1rem;
+		font-size: .75rem;
+	}
+</style>
+
+<style>
+	
+
+	.field-mapping .el-form-item__label {
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		font-weight: bold;
+		background: #cee4fc;
+		margin-bottom: 0 !important;
+	}
+	.field-mapping .el-form-item__content {
+		padding: 2rem;
+		background: #eee;
+	}
+	.field-mapping .mapping-row {
+		width: 100%;
+	}
+	.field-mapping .mapping-row .el-row{
+		display: flex;
+		gap: 1rem;
+		justify-content: space-between;
+		width: auto !important;
+	}
+	.mapping-row.active-key-row .el-select__wrapper {
+		background: #e4fde4 !important;
+		border: 1px solid #96ff96 !important;
+		transition: background 0.2s;
 	}
 </style>

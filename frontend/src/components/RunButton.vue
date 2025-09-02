@@ -1,7 +1,7 @@
 <template>
   <el-tooltip placement="top">
     <template #content> Azonnali indítás </template>
-    <el-button :disabled="loading" @click="run" type="primary" circle size="large">
+    <el-button :disabled="loading" @click="run" type="success" circle size="large">
       <el-icon size="25"><VideoPlay /></el-icon>
     </el-button>
   </el-tooltip>

@@ -45,7 +45,7 @@
           />
           <el-tooltip placement="top">
             <template #content> Konfiguráció módosítása </template>
-            <el-button @click="$emit('edit', scope.row.processId)" type="info" circle size="large">
+            <el-button @click="$emit('edit', scope.row.processId)" type="primary" circle size="large">
               <el-icon  size="25"><EditPen /></el-icon>
             </el-button>
           </el-tooltip>
@@ -62,6 +62,7 @@
 
     <!-- Lapozás -->
     <el-pagination
+      v-if="filtered.length > pageSize"
       background
       style="margin-top: 16px; text-align: right;"
       layout="prev, pager, next"
@@ -82,7 +83,7 @@ export default {
     processes: { type: Array, default: () => [] }
   },
   components: { RunButton },
-  emits: ['run-complete'],
+  emits: ['run-complete', 'edit', 'delete'],
   setup(props, { emit }) {
     const search = ref('')
     const currentPage = ref(1)

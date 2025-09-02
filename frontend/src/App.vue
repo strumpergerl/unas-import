@@ -6,17 +6,24 @@
 					display: flex;
 					align-items: center;
 					justify-content: space-between;
+					height: 100%;
 				"
 			>
-				<h1 style="margin: 0 auto">Unas Importer Dashboard</h1>
-				<ShopSelector v-model:shopId="selectedShop" :shops="shops" />
+				<h1 style="margin: 0 auto">
+					<el-icon style="vertical-align: middle; margin-right: 8px;"><Sunny /></el-icon>
+					Unas szinkron
+					<span v-if="selectedShop">
+						- {{ shops.find(s => s.shopId === selectedShop)?.name || '' }}
+					</span>
+					<el-icon style="vertical-align: middle; margin-left: 8px;"><Sunny /></el-icon>
+				</h1>
 			</div>
 		</el-header>
 		<el-main>
 			<ExchangeRates />
-			<el-button type="primary" class="new-process-btn" @click="openForm()"
-				>Új szinkron létrehozása</el-button
-			>
+			<div class="webshop-switcher-line">
+				<ShopSelector v-model:shopId="selectedShop" :shops="shops" />
+			</div>
 			<ProcessTable
 				:processes="filteredProcesses"
 				:shops="shops"
@@ -24,26 +31,47 @@
 				@delete="handleDelete"
 				@run-complete="loadLogs"
 			/>
-			
+			<el-button type="primary" class="new-process-btn" @click="openForm()"
+				><el-icon style="vertical-align: middle; margin-right: 4px;"><Plus /></el-icon>Új szinkron létrehozása</el-button
+			>
+
 			<LogsViewer :logs="logs" />
-			
+
 			<!-- Modal a ProcessForm számára -->
 			<el-dialog
-				:title="`Szinkron folyamat szerkesztése ${selectedShop ? ' - ' + (shops.find(s => s.shopId === selectedShop)?.name || '') : ''}`"
 				v-model="showForm"
 				width="800px"
-				@close="showForm = false"
+				class="process-modal"
+				fullscreen 
 			>
+				<template #header="{ titleId, titleClass }">
+					<div class="my-header">
+						<h1 :id="titleId" :class="titleClass">
+							Szinkron folyamat
+							{{ selectedShop ? ' - ' + (shops.find((s) => s.shopId === selectedShop)?.name || '') : '' }}
+						</h1>
+					</div>
+				</template>
 				<ProcessForm
 					:key="editedProcess.processId || 'new'"
 					:shops="shops"
 					:initial="editedProcess"
 					:activeShopId="selectedShop || ''"
 					@save="saveProcess"
-					@cancel="showForm = false"
 				/>
-
 			</el-dialog>
+			<!-- <el-dialog v-model="visible" :show-close="false" width="500">
+				<template #header="{ close, titleId, titleClass }">
+					<div class="my-header">
+						<h4 :id="titleId" :class="titleClass">This is a custom header!</h4>
+						<el-button type="danger" @click="close">
+							<el-icon class="el-icon--left"><CircleCloseFilled /></el-icon>
+							Close
+						</el-button>
+					</div>
+				</template>
+				This is dialog content.
+			</el-dialog> -->
 		</el-main>
 	</el-container>
 </template>
@@ -186,5 +214,34 @@
 		bottom: 1rem;
 		right: 1rem;
 		z-index: 1000;
+	}
+
+	.process-modal .el-dialog__header{
+		padding-right: 0 !important;
+	}
+	.process-modal .my-header{
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-bottom: 1px solid #ddd;
+		margin-bottom: 1rem;
+	}
+	.process-modal .my-header .el-dialog__title{
+		font-size: 1.3125rem;
+	}
+	.process-modal .el-dialog__headerbtn{
+		background-color: #e5e5e5;
+		color: black;
+	}
+	.process-modal .el-dialog__headerbtn .el-icon{
+		color: black;
+	}
+	.webshop-switcher-line {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 1rem;
+		background-color: var(--el-color-info-light-5);
+		padding: .5rem 1rem;
+		margin: 0;
 	}
 </style>

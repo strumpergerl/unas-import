@@ -2,7 +2,6 @@
   <el-select
     v-model="internalShopId"
     placeholder="Webshop kiválasztása"
-    clearable
     @change="onChange"
     style="width: 250px;"
   >

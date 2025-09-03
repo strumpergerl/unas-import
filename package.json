@@ -29,7 +29,8 @@
   },
   "dependencies": {
     "csv-parse": "^6.1.0",
-    "firebase-admin": "^13.5.0"
+    "firebase-admin": "^13.5.0",
+    "serverless-http": "^4.0.0"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "4.18.0"

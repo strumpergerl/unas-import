@@ -9,7 +9,7 @@ const app = express();
 
 // FONTOS: ne tegyél ide plusz '/api' prefixet!
 // A Vercel már eleve az '/api/*' útvonalat irányítja ide.
-app.use('/api', apiRouter);
+app.use(apiRouter);
 
 
 module.exports = serverless(app);

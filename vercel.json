@@ -1,7 +1,8 @@
 {
-  "functions": { "api/**/*.{js,ts}": { "runtime": "nodejs22.x" } },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    "version": 2,
+	"functions": { "api/**/*.{js,ts}": { "runtime": "vercel/nodejs22.x" } },
+	"rewrites": [
+		{ "source": "/api/(.*)", "destination": "/api/$1" },
+		{ "source": "/(.*)", "destination": "/index.html" }
+	]
 }

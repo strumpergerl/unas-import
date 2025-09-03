@@ -21,7 +21,8 @@ export default defineConfig({
   },
   base: './',
   build: {
-    outDir: isCI ? 'dist' : resolve(__dirname, '../backend/public'),
+    outDir: 'dist',
+    // outDir: isCI ? 'dist' : resolve(__dirname, '../backend/public'),
     emptyOutDir: true
   }
 })

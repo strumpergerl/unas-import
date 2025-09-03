@@ -31,21 +31,30 @@ function safeJson(res, status, payload) {
 /** UNAS ProductDB mezőlista adott shopDocId szerint */
 router.get('/unas/fields', async (req, res) => {
 	try {
-		const { shopId } = req.query || {};
+		const { shopId, processId } = req.query || {};
 		if (!shopId) throw new BadRequestError('shopId szükséges');
 
 		const shop = await loadShopById(shopId);
 		const { apiKey } = shop;
 
-		// FIGYELEM: az egyszerűsített UNAS kliensünk már csak apiKey-t kér
-		const { headers } = await fetchProductDbHeaders({ apiKey });
+		let paramsXml = null;
+		if (processId) {
+			const doc = await db.collection('processes').doc(String(processId)).get();
+			if (doc.exists) {
+				const pc = doc.data() || {};
+
+				paramsXml =
+					pc?.productDb?.paramsXml || pc?.unas?.productDb?.paramsXml || null;
+			}
+		}
+
+		const { headers } = await fetchProductDbHeaders({ apiKey, paramsXml });
 		const fields = headers.map((h) => ({ key: String(h), label: String(h) }));
 
 		return res.json({ shopId, count: fields.length, fields });
 	} catch (e) {
 		console.error('[GET /api/unas/fields] error:', e);
 		const status = e?.code === 'BAD_REQUEST' ? 400 : 500;
-		// Mindig JSON-t adunk vissza
 		return res
 			.status(status)
 			.json({ error: e.message || 'Hiba', code: e.code || 'ERR' });

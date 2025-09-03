@@ -1,15 +1,17 @@
 // api/[[...all]].js
 const serverless = require('serverless-http');
 const express = require('express');
-
-// a saját routered:
-const apiRouter = require('../backend/src/api'); // <-- ez a /backend/src/api/index.js
+const apiRouter = require('../backend/src/api');
 
 const app = express();
 
-// FONTOS: ne tegyél ide plusz '/api' prefixet!
-// A Vercel már eleve az '/api/*' útvonalat irányítja ide.
-app.use(apiRouter);
+// 1) Ha a kérés '/api/...' prefixszel jön, szedjük le:
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/')) req.url = req.url.slice(4); // '/api' levágása
+  next();
+});
 
+// 2) Mount prefix nélkül — így a routered '/config', '/logs', stb. útvonalai illeszkednek
+app.use(apiRouter);
 
 module.exports = serverless(app);

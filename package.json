@@ -2,9 +2,7 @@
   "private": true,
   "name": "unas-import",
   "version": "1.0.0",
-  "engines": {
-    "node": "22"
-  },
+  "engines": {},
   "workspaces": [
     "backend",
     "frontend"

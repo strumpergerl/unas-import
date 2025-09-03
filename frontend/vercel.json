@@ -1,8 +1,0 @@
-{
-  "functions": {
-    "api/**/*.{js,ts}": { "runtime": "nodejs22.x" }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}

@@ -1,112 +1,140 @@
 // backend/src/scheduler.js
-const cron = require('node-cron');
-const { runProcessById, pruneOldRuns } = require('./runner');
+require('./bootstrapEnv');
+const cron = require('node-cron'); // csak a napi prune-hoz
 const { db } = require('./db/firestore');
+const { runProcessById, pruneOldRuns } = require('./runner');
 
-const activeJobs = new Map();
-
-/**
- * frequency mezőből cron kifejezés
- * pl. '30m','3h','1d' -> cron string
- */
-function cronExpression(freq) {
-  const num = parseInt(freq.slice(0, -1), 10);
-  const unit = freq.slice(-1);
-  switch (unit) {
-    case 'm': return `*/${num} * * * *`;
-    case 'h': return `0 */${num} * * *`;
-    case 'd': return `0 0 */${num} * *`;
-    default: throw new Error(`Unsupported frequency: ${freq}`);
-  }
+/** "30m", "3h", "1d", "45s" → ms */
+function parseFrequencyToMs(freq) {
+  if (!freq || typeof freq !== 'string') return null;
+  const m = freq.trim().toLowerCase().match(/^(\d+)\s*([smhd])$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const mult = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2]];
+  return n * mult;
 }
 
-/**
- * Egyetlen process ütemezése
- */
-function scheduleProcess(proc) {
-  if (!proc.frequency) {
-    console.warn(`[SCHEDULER] Nincs frequency a process-ben: ${proc.processId}`);
+/** Következő futás a referencia-időre horgonyozva (mindig a többszörösre kerekít) */
+function nextFromReference(referenceAt, intervalMs, now = new Date()) {
+  const ref = new Date(referenceAt || Date.now());
+  if (!intervalMs || intervalMs <= 0 || Number.isNaN(ref.getTime())) return null;
+  const diff = now.getTime() - ref.getTime();
+  if (diff < 0) return ref; // jövőbeli referencia → első futás a ref időpontban
+  const steps = Math.floor(diff / intervalMs) + 1;
+  return new Date(ref.getTime() + steps * intervalMs);
+}
+
+/** kis jitter a thundering herd ellen (0..4s) */
+function withJitter(date, maxMs = 4000) {
+  const jitter = Math.floor(Math.random() * maxMs);
+  return new Date(date.getTime() + jitter);
+}
+
+const timers = new Map();   // processId -> Timeout
+const running = new Set();  // processId (fut épp)
+let unsubscribe = null;
+
+function cancelTimer(id) {
+  const t = timers.get(id);
+  if (t) clearTimeout(t);
+  timers.delete(id);
+}
+
+function cancelAll() {
+  for (const id of Array.from(timers.keys())) cancelTimer(id);
+}
+
+async function scheduleOne(docId, data, docRef) {
+  cancelTimer(docId);
+  if (!data?.enabled) return;
+
+  const intervalMs = parseFrequencyToMs(data.frequency);
+  if (!intervalMs) {
+    console.warn(`[SCHED] ${docId}: érvénytelen frequency:`, data.frequency);
     return;
   }
 
-  try {
-    const expr = cronExpression(proc.frequency);
-
-    // Ha már van job erre a processId-ra, töröljük
-    if (activeJobs.has(proc.processId)) {
-      activeJobs.get(proc.processId).stop();
-      activeJobs.delete(proc.processId);
-    }
-
-    const job = cron.schedule(expr, () => {
-      console.log(`[SCHEDULER] Ütemezett futtatás: ${proc.displayName || proc.processId}`);
-      runProcessById(proc.processId);
-    });
-
-    activeJobs.set(proc.processId, job);
-    console.log(`[SCHEDULER] Ütemezve: ${proc.displayName || proc.processId} (${expr})`);
-  } catch (err) {
-    console.error(`[SCHEDULER] Nem sikerült ütemezni ${proc.processId}:`, err.message);
+  // ha hiányzik a referenceAt, most állítsuk be (horgony = most)
+  let refAt = data.referenceAt ? new Date(data.referenceAt) : new Date();
+  if (!data.referenceAt) {
+    try { await docRef.update({ referenceAt: refAt.toISOString() }); }
+    catch (e) { console.warn(`[SCHED] ${docId}: referenceAt írás hiba:`, e?.message); }
   }
-}
 
-async function scheduleProcesses() {
-  try {
-    // 1) jelenlegi process list betöltése
-    const snap = await db.collection('processes').get();
-    const processes = snap.docs.map(d => ({ processId: d.id, ...d.data() }));
-    // 2) ütemezés
-    rescheduleAll(processes);
-    // 3) élő figyelés változásokra
-    watchProcesses();
-    console.log('[SCHEDULER] scheduleProcesses kész');
-  } catch (err) {
-    console.error('[SCHEDULER] scheduleProcesses hiba:', err?.message || err);
-  }
-}
+  const now = new Date();
+  const next = nextFromReference(refAt, intervalMs, now);
+  if (!next) return;
 
-/**
- * Összes process újraütemezése (pl. Firestore snapshot után)
- */
-function rescheduleAll(processes) {
-  // minden régi job leállítása
-  for (const job of activeJobs.values()) {
-    job.stop();
-  }
-  activeJobs.clear();
+  const nextJ = withJitter(next);
+  const delay = Math.max(100, nextJ.getTime() - now.getTime());
 
-  // új ütemezés
-  processes.forEach(scheduleProcess);
-  console.log(`[SCHEDULER] ${processes.length} process ütemezve`);
-}
+  try { await docRef.update({ nextRunAt: next.toISOString() }); } catch {}
 
-/**
- * Napi egyszeri log prune ütemezése
- * (30 napnál régebbi run-ok törlése)
- * */
+  const tick = async () => {
+    const start = new Date();
 
-function scheduleLogPrune() {
-  // Minden nap 03:30-kor
-  cron.schedule('30 3 * * *', async () => {
-    try {
-      const deleted = await pruneOldRuns(30);
-      if (deleted) {
-        console.log(`[SCHEDULER] Log prune: ${deleted} régi run törölve`);
+    if (running.has(docId)) {
+      console.warn(`[SCHED] ${docId}: még fut az előző példány, kihagyom ezt az időpontot.`);
+    } else {
+      running.add(docId);
+      try {
+        try { await docRef.update({ lastRunAt: start.toISOString() }); } catch {}
+        await runProcessById(docId);
+      } catch (e) {
+        console.error(`[SCHED] ${docId}: futási hiba:`, e?.message || e);
+      } finally {
+        running.delete(docId);
       }
-    } catch (e) {
-      console.error('[SCHEDULER] Log prune hiba:', e?.message || e);
     }
-  }, { timezone: 'Europe/Budapest' });
+
+    // Következő időpont kiszámítása: mindig a referencia-idő sorára illesztve
+    const now2 = new Date();
+    const next2 = nextFromReference(refAt, intervalMs, now2);
+    const next2J = withJitter(next2);
+    const delay2 = Math.max(100, next2J.getTime() - now2.getTime());
+
+    try { await docRef.update({ nextRunAt: next2.toISOString() }); } catch {}
+    timers.set(docId, setTimeout(tick, delay2));
+  };
+
+  timers.set(docId, setTimeout(tick, delay));
 }
 
-/**
- * Firestore figyelése változásokra
- */
-function watchProcesses() {
-  db.collection('processes').onSnapshot((snap) => {
-    const processes = snap.docs.map(d => ({ processId: d.id, ...d.data() }));
-    rescheduleAll(processes);
+function watchAndSchedule() {
+  if (unsubscribe) return;
+  unsubscribe = db.collection('processes').onSnapshot((snap) => {
+    const seen = new Set();
+    snap.forEach((doc) => {
+      const data = doc.data() || {};
+      seen.add(doc.id);
+      scheduleOne(doc.id, data, doc.ref).catch((e) =>
+        console.error(`[SCHED] ${doc.id}: schedule hiba:`, e?.message || e)
+      );
+    });
+    // törölt / nem látott processzek időzítőit leállítjuk
+    for (const id of Array.from(timers.keys())) {
+      if (!seen.has(id)) cancelTimer(id);
+    }
+  }, (err) => {
+    console.error('[SCHED] Firestore snapshot hiba:', err?.message || err);
   });
 }
 
-module.exports = { scheduleProcess, rescheduleAll, watchProcesses, scheduleLogPrune, scheduleProcesses };
+function start() {
+  watchAndSchedule();
+  // napi prune 03:30 Europe/Budapest
+  cron.schedule('30 3 * * *', () => {
+    pruneOldRuns(30).catch(e => console.error('[SCHED] prune hiba:', e?.message || e));
+  }, { timezone: 'Europe/Budapest' });
+  console.log('[SCHED] referencia-idő alapú ütemező fut (setTimeout + Firestore).');
+}
+
+function stop() {
+  if (unsubscribe) unsubscribe();
+  unsubscribe = null;
+  cancelAll();
+  console.log('[SCHED] leállítva.');
+}
+
+module.exports = { start, stop, nextFromReference, parseFrequencyToMs };

@@ -3,7 +3,7 @@
   "name": "unas-import",
   "version": "1.0.0",
   "engines": {
-    "node": "22.12.0"
+    "node": "22"
   },
   "workspaces": [
     "backend",

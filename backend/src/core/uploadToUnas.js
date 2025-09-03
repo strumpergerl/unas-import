@@ -53,6 +53,24 @@ const hash = (obj) =>
 const formulaHasVat = (formula) =>
 	typeof formula === 'string' && /\{vat\}/i.test(formula);
 
+// ---- Mezők kiválasztása a feed rekordból a match konfiguráció alapján ----
+function pickFeedKeyValue(rec, processConfig, matchCfg) {
+  const src = String(matchCfg.feedKey || '').trim();
+  if (rec[src] != null && rec[src] !== '') return rec[src];        // pl. "SKU"
+  const srcLc = src.toLowerCase();
+  if (rec[srcLc] != null && rec[srcLc] !== '') return rec[srcLc];  // pl. "sku"
+
+  const dst = processConfig?.fieldMapping?.[src];                   // pl. "SKU" -> "sku"
+  if (dst) {
+    const dstLc = String(dst).toLowerCase();
+    if (rec[dstLc] != null && rec[dstLc] !== '') return rec[dstLc];
+  }
+
+  if (matchCfg.unasField === 'sku' && rec.sku) return rec.sku;      // safe fallbackok
+  if (matchCfg.unasField === 'barcode') return rec.barcode ?? rec.ean ?? rec.EAN;
+  return undefined;
+}
+
 /** Nettó/Bruttó biztosítása a processConfig alapján */
 function ensureNetGross(item, processConfig) {
 	const vatPct = Number(processConfig?.vat ?? 0);
@@ -122,10 +140,8 @@ async function postXml(pathSeg, xmlBody, bearer) {
 }
 
 /* ============================
-   MATCH – csak a beállított mezőket használjuk
+   MATCH – szigorú kulcspár-kezelés
    ============================ */
-
-/** Validáció */
 function validateStrictMatchConfig(cfg) {
 	if (!cfg.feedKey) throw new Error('[MATCH] feedKey kötelező.');
 	if (!['sku', 'barcode', 'parameter'].includes(cfg.unasField)) {
@@ -144,8 +160,6 @@ function validateStrictMatchConfig(cfg) {
 		throw new Error('[MATCH] parameter esetén crawl-nál unasParamId kötelező.');
 	}
 }
-
-/** keyFields (map) → aktív kulcspár */
 function deriveMatchFromKeyFields(keyFields) {
 	if (!keyFields || typeof keyFields !== 'object') return null;
 	const feedKey = String(keyFields.feed || keyFields.feedKey || '').trim();
@@ -153,8 +167,6 @@ function deriveMatchFromKeyFields(keyFields) {
 	if (!feedKey || !unasKey) return null;
 
 	const u = unasKey.toLowerCase();
-
-	// közismert aliasok
 	if (['sku', 'cikkszám', 'cikkszam'].includes(u)) {
 		const cfg = {
 			feedKey,
@@ -175,27 +187,22 @@ function deriveMatchFromKeyFields(keyFields) {
 		validateStrictMatchConfig(cfg);
 		return cfg;
 	}
-
-	// minden más: ProductDB oszlop (pl. "Bruttó Ár", "Paraméter: ...", stb.)
 	const cfg = {
 		feedKey,
-		unasField: 'parameter', // technikailag "tetszőleges ProductDB oszlop"
-		productDbHeader: String(unasKey), // pontos fejlécnév
+		unasField: 'parameter',
+		productDbHeader: String(unasKey),
 		source: 'productdb',
 		caseInsensitive: true,
 	};
 	validateStrictMatchConfig(cfg);
 	return cfg;
 }
-
-/** .field-mapping → aktív kulcspár (ha nálad ilyen is van) */
 function deriveMatchFromFieldMapping(fieldMapping) {
 	const list = Array.isArray(fieldMapping)
 		? fieldMapping
 		: Array.isArray(fieldMapping?.fields)
 		? fieldMapping.fields
 		: [];
-
 	if (!list.length) return null;
 
 	const keyItems = list.filter(
@@ -207,39 +214,30 @@ function deriveMatchFromFieldMapping(fieldMapping) {
 		keyItems.find(
 			(it) => it.active || it.selected || it.isActive || it.primary
 		) || keyItems[0];
-
 	const cfg = {
 		feedKey: String(active.feedKey || '').trim(),
-		unasField: String(active.unasField || '').trim(), // 'sku' | 'barcode' | 'parameter'
+		unasField: String(active.unasField || '').trim(),
 		productDbHeader: String(active.productDbHeader || '').trim(),
 		unasParamId: String(active.unasParamId || '').trim(),
 		source: String(active.source || 'auto').trim(),
 		caseInsensitive: active.caseInsensitive !== false,
 		selectedId: active.id || null,
 	};
-
-	if (!cfg.source || cfg.source === 'auto') {
+	if (!cfg.source || cfg.source === 'auto')
 		cfg.source = cfg.productDbHeader ? 'productdb' : 'crawl';
-	}
-
 	validateStrictMatchConfig(cfg);
 	return cfg;
 }
-
-/** match.pairs / match / keyFields / fieldMapping sorrendben olvassuk a beállítást */
 function getStrictMatchConfig(processConfig = {}) {
 	const m = processConfig.match || {};
-
-	// 1) pairs + activeIndex/selected
 	if (Array.isArray(m.pairs) && m.pairs.length) {
 		let pair = null;
 		if (Number.isInteger(m.activeIndex)) pair = m.pairs[m.activeIndex] || null;
 		else if (m.selected != null) {
 			const sel = String(m.selected);
 			pair = m.pairs.find((p) => String(p.id || p.name || '') === sel) || null;
-		} else {
-			pair = m.pairs.find((p) => p && p.selected === true) || m.pairs[0];
-		}
+		} else pair = m.pairs.find((p) => p && p.selected === true) || m.pairs[0];
+
 		const cfg = {
 			feedKey: String(pair.feedKey || '').trim(),
 			unasField: String(pair.unasField || '').trim(),
@@ -254,8 +252,6 @@ function getStrictMatchConfig(processConfig = {}) {
 		validateStrictMatchConfig(cfg);
 		return cfg;
 	}
-
-	// 2) single match (legacy)
 	if (m.feedKey && m.unasField) {
 		const cfg = {
 			feedKey: String(m.feedKey).trim(),
@@ -271,12 +267,8 @@ function getStrictMatchConfig(processConfig = {}) {
 		validateStrictMatchConfig(cfg);
 		return cfg;
 	}
-
-	// 3) keyFields (map) – EZ A TE ESETEd
 	const fromKF = deriveMatchFromKeyFields(processConfig.keyFields);
 	if (fromKF) return fromKF;
-
-	// 4) .field-mapping (ha használsz ilyet)
 	const fromFM = deriveMatchFromFieldMapping(processConfig.fieldMapping);
 	if (fromFM) return fromFM;
 
@@ -288,8 +280,6 @@ function getStrictMatchConfig(processConfig = {}) {
 /* ============================
    UNAS index építés (determinista)
    ============================ */
-
-// per-run memória cache
 const memIndexCache = new Map();
 const cacheKeyFor = (shopId, cfg) => `${shopId}:${hash(cfg)}`;
 const indexCacheFile = (shopId, cfg) =>
@@ -319,22 +309,18 @@ function saveIndexToDisk(shopId, cfg, idx) {
 	);
 }
 
-// ProductDB → Map(matchKey → { sku })
 function buildIndexFromProductDbStrict(rows, _header, cfg) {
 	const idx = new Map();
 	for (const r of rows) {
 		const keyRaw = r[cfg.productDbHeader];
-		const sku = r['Sku']; // UNAS CSV sztenderd
+		const sku = r['Sku'];
 		if (!keyRaw || !sku) continue;
 		idx.set(normKey(keyRaw, cfg.caseInsensitive), { sku: String(sku).trim() });
 	}
 	return idx;
 }
-
-// Crawl → Map(matchKey → { sku })
 function buildIndexFromCrawlStrict(productList, cfg) {
 	const idx = new Map();
-
 	for (const p of productList) {
 		const sku = String(p?.Sku || p?.SKU || '').trim();
 		if (!sku) continue;
@@ -343,20 +329,15 @@ function buildIndexFromCrawlStrict(productList, cfg) {
 			idx.set(normKey(sku, cfg.caseInsensitive), { sku });
 			continue;
 		}
-
 		if (cfg.unasField === 'barcode') {
 			const ean = String(p?.Barcode || p?.EAN || '').trim();
-			if (ean) {
-				idx.set(normKey(ean, cfg.caseInsensitive), { sku });
-			}
+			if (ean) idx.set(normKey(ean, cfg.caseInsensitive), { sku });
 		}
-
 		if (cfg.unasField === 'parameter') {
 			const addMatches = (params, vSku) => {
 				const arr = Array.isArray(params) ? params : params ? [params] : [];
 				for (const it of arr) {
 					const id = String(it?.Id ?? it?.ID ?? '').trim();
-					// Ha productDbHeader-rel dolgozunk, crawl-ágban a param ID szükséges.
 					if (
 						cfg.source !== 'productdb' &&
 						cfg.unasParamId &&
@@ -382,22 +363,13 @@ function buildIndexFromCrawlStrict(productList, cfg) {
 			}
 		}
 	}
-
 	return idx;
 }
 
-async function downloadProductDbCsv(bearer) {
-	const reqXml = builder.buildObject({
-		Params: {
-			Format: 'csv2',
-			GetParam: 1,
-			GetPrice: 1,
-			GetStock: 1,
-			Compress: 'no',
-			Lang: 'hu',
-		},
-	});
-
+async function downloadProductDbCsv(bearer, paramsXml) {
+  const reqXml = paramsXml && paramsXml.trim()
+    ? paramsXml
+    : builder.buildObject({ Params: { Format: 'csv2' } });
 	const genResp = await postXml('getProductDB', reqXml, bearer);
 	if (genResp.status < 200 || genResp.status >= 300) {
 		throw new Error(
@@ -436,7 +408,6 @@ async function crawlAllProducts(bearer) {
 	const all = [];
 	const limit = 500;
 	let start = 0;
-
 	for (;;) {
 		const req = builder.buildObject({
 			Params: {
@@ -445,14 +416,12 @@ async function crawlAllProducts(bearer) {
 				ContentType: 'full',
 			},
 		});
-
 		const resp = await postXml('getProduct', req, bearer);
 		if (resp.status < 200 || resp.status >= 300) {
 			throw new Error(
 				`[UNAS] getProduct crawl hiba: ${resp.status} ${resp.statusText}`
 			);
 		}
-
 		const parsed = await parser.parseStringPromise(resp.data);
 		let products =
 			parsed?.Products?.Product ||
@@ -461,18 +430,15 @@ async function crawlAllProducts(bearer) {
 			[];
 		if (!Array.isArray(products)) products = products ? [products] : [];
 		if (products.length === 0) break;
-
 		all.push(...products);
 		start += products.length;
 		if (products.length < limit) break;
 	}
-
 	return all;
 }
 
 async function buildUnasIndexStrict(bearer, shopId, cfg) {
 	const cKey = cacheKeyFor(shopId, cfg);
-
 	if (memIndexCache.has(cKey)) return memIndexCache.get(cKey);
 
 	const disk = loadIndexFromDisk(shopId, cfg);
@@ -486,7 +452,7 @@ async function buildUnasIndexStrict(bearer, shopId, cfg) {
 		let lastErr = null;
 		for (let i = 0; i < UNAS_PRODUCTDB_MAX_RETRIES; i++) {
 			try {
-				const { rows, header } = await downloadProductDbCsv(bearer);
+				const { rows, header } = await downloadProductDbCsv(bearer, cfg.productDbParamsXml);
 				idx = buildIndexFromProductDbStrict(rows, header, cfg);
 				lastErr = null;
 				break;
@@ -500,10 +466,9 @@ async function buildUnasIndexStrict(bearer, shopId, cfg) {
 		const products = await crawlAllProducts(bearer);
 		idx = buildIndexFromCrawlStrict(products, cfg);
 	} else {
-		// 'auto'
 		if (cfg.productDbHeader) {
 			try {
-				const { rows, header } = await downloadProductDbCsv(bearer);
+				const { rows, header } = await downloadProductDbCsv(bearer, cfg.productDbParamsXml);
 				idx = buildIndexFromProductDbStrict(rows, header, cfg);
 			} catch {
 				const products = await crawlAllProducts(bearer);
@@ -514,19 +479,19 @@ async function buildUnasIndexStrict(bearer, shopId, cfg) {
 			idx = buildIndexFromCrawlStrict(products, cfg);
 		}
 	}
-
 	memIndexCache.set(cKey, idx);
 	saveIndexToDisk(shopId, cfg, idx);
 	return idx;
 }
 
-// (opcionális) SKU létezés ellenőrzés
-async function productExistsBySku(bearer, sku) {
+// --- Segéd: UNAS termék lekérés SKU alapján (diff-hez) ---
+async function fetchProductBySku(bearer, sku) {
 	const payload = builder.buildObject({
 		Params: { Sku: sku, ContentType: 'full', LimitNum: 1 },
 	});
 	const resp = await postXml('getProduct', payload, bearer);
-	if (resp.status < 200 || resp.status >= 300) return false;
+	if (resp.status < 200 || resp.status >= 300)
+		return { exists: false, product: null };
 	try {
 		const parsed = await parser.parseStringPromise(resp.data);
 		const product =
@@ -534,10 +499,50 @@ async function productExistsBySku(bearer, sku) {
 			parsed?.ProductList?.Products?.Product ||
 			parsed?.Product ||
 			null;
-		return Boolean(product);
+		if (!product) return { exists: false, product: null };
+
+		const stocks = product?.Stocks?.Stock;
+		const stockArr = Array.isArray(stocks) ? stocks : stocks ? [stocks] : [];
+		const firstStock = stockArr[0] || {};
+		const prices = product?.Prices?.Price;
+		const priceArr = Array.isArray(prices) ? prices : prices ? [prices] : [];
+		const normalPrice =
+			priceArr.find((p) => String(p?.Type || '').toLowerCase() === 'normal') ||
+			priceArr[0] ||
+			{};
+
+		const before = {
+			name: String(product?.Name ?? ''),
+			description: String(product?.Description ?? ''),
+			stock: Number(firstStock?.Qty ?? 0) || 0,
+			price_net: Number(normalPrice?.Net ?? 0) || 0,
+			price_gross: Number(normalPrice?.Gross ?? 0) || 0,
+			currency: String(normalPrice?.Currency ?? '') || null,
+		};
+		return { exists: true, product, before };
 	} catch {
-		return false;
+		return { exists: false, product: null };
 	}
+}
+
+function diffFields(before, after) {
+	const changes = {};
+	const fields = [
+		'name',
+		'description',
+		'stock',
+		'price_net',
+		'price_gross',
+		'currency',
+	];
+	for (const f of fields) {
+		const b = before?.[f];
+		const a = after?.[f];
+		if ((b ?? null) !== (a ?? null)) {
+			changes[f] = { from: b ?? null, to: a ?? null };
+		}
+	}
+	return changes;
 }
 
 /* ============================
@@ -552,24 +557,6 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 	const bearer = await getBearerToken(shop.apiKey);
 	if (!bearer) throw new Error('[UNAS] Nem sikerült Bearer tokent szerezni.');
 
-	const stats = {
-		shopId: shop.shopId,
-		shopName: shop.name,
-		total: records.length,
-		modified: [],
-		skippedNoKey: [],
-		skippedNotFound: [],
-		failed: [],
-		dryRun: !!dryRun,
-	};
-
-	if (dryRun) {
-		console.log(
-			`DRY RUN: ${records.length} tétel menne fel a(z) ${shop.name} boltba (Action=modify)`
-		);
-		return stats;
-	}
-
 	// --- Szigorú match (match.pairs / match / keyFields / .field-mapping) ---
 	const matchCfg = getStrictMatchConfig(processConfig);
 
@@ -579,55 +566,123 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		unasIndex = await buildUnasIndexStrict(bearer, shop.shopId, matchCfg);
 	}
 
+	const stats = {
+		shopId: shop.shopId,
+		shopName: shop.name,
+		match: matchCfg,
+		total: records.length,
+		modified: [], // { key, sku, before, after, changes }
+		skippedNoKey: [], // { key, reason }
+		skippedNotFound: [], // { key, reason }
+		failed: [], // { key, sku, error, status, statusText, raw }
+		dryRun: !!dryRun,
+	};
+
+	if (dryRun) {
+		for (const rec of records) {
+			const keyRaw = pickFeedKeyValue(rec, processConfig, matchCfg);
+			if (!keyRaw) {
+				stats.skippedNoKey.push({
+					key: null,
+					reason: `Hiányzik feedKey: ${matchCfg.feedKey}`,
+				});
+				continue;
+			}
+			let unasSku = null;
+			if (matchCfg.unasField === 'sku') {
+				unasSku = norm(keyRaw);
+			} else {
+				const entry = unasIndex?.get(normKey(keyRaw, matchCfg.caseInsensitive));
+				unasSku = entry?.sku || null;
+			}
+			if (!unasSku) {
+				stats.skippedNotFound.push({
+					key: keyRaw,
+					reason: 'UNAS SKU nem található (index alapján)',
+				});
+				continue;
+			}
+			const { net, gross, currency } = ensureNetGross(rec, processConfig);
+			const after = {
+				name: rec.name != null ? String(rec.name) : undefined,
+				description:
+					rec.description != null ? String(rec.description) : undefined,
+				stock:
+					rec.stock != null
+						? Math.max(0, Math.trunc(Number(rec.stock) || 0))
+						: undefined,
+				price_net: net,
+				price_gross: gross,
+				currency,
+			};
+			stats.modified.push({
+				key: keyRaw,
+				sku: unasSku,
+				before: null,
+				after,
+				changes: after,
+			});
+		}
+		return stats;
+	}
+
 	// --- Feltöltési ciklus ---
 	for (const rec of records) {
-		// 1) feed-oldali kulcs
-		const keyRaw = rec[matchCfg.feedKey];
+		const keyRaw = pickFeedKeyValue(rec, processConfig, matchCfg);
 		if (!keyRaw) {
-			stats.skippedNoKey.push(rec);
+			stats.skippedNoKey.push({
+				key: null,
+				reason: `Hiányzik feedKey: ${matchCfg.feedKey}`,
+			});
 			continue;
 		}
 
-		// 2) SKU meghatározása
+		// SKU meghatározása
 		let unasSku = null;
-
 		if (matchCfg.unasField === 'sku') {
-			// direkt SKU – nincs indexkeresés
 			unasSku = norm(keyRaw);
 		} else {
 			const key = normKey(keyRaw, matchCfg.caseInsensitive);
 			const entry = unasIndex.get(key);
+			console.log('Index entry:', { keyRaw, key, entry });
 			if (!entry || !entry.sku) {
-				stats.skippedNotFound.push(keyRaw);
+				console.log('Nincs index entry:', { keyRaw, key, entry });
+				stats.skippedNotFound.push({
+					key: keyRaw,
+					reason: 'UNAS SKU nem található (index alapján)',
+				});
 				continue;
 			}
 			unasSku = String(entry.sku).trim();
 		}
 
-		// 3) (opcionális) létezés ellenőrzés
+		// Meglévő UNAS termék lekérése → before
+		let before = null;
 		let exists = true;
 		try {
-			exists = await productExistsBySku(bearer, unasSku);
+			const fetched = await fetchProductBySku(bearer, unasSku);
+			exists = fetched.exists;
+			before = fetched.before || null;
 		} catch {
-			exists = true;
+			exists = true; // ha lekérés hibás, nem állítjuk le a folyamatot
 		}
 		if (!exists) {
-			stats.skippedNotFound.push(unasSku);
+			stats.skippedNotFound.push({
+				key: unasSku,
+				reason: 'Termék nem létezik a shopban (SKU)',
+			});
 			continue;
 		}
 
-		// 4) Product node összeállítás
+		// After állapot összerakása a feltöltendőből
 		const productNode = { Sku: unasSku };
-
 		if (rec.name != null) productNode.Name = String(rec.name);
 		if (rec.description != null)
 			productNode.Description = String(rec.description);
-
 		if (rec.stock != null) {
 			const qty = Math.max(0, Math.trunc(Number(rec.stock) || 0));
 			productNode.Stocks = { Stock: { Qty: String(qty) } };
 		}
-
 		const { net, gross, currency } = ensureNetGross(rec, processConfig);
 		productNode.Prices = {
 			Price: {
@@ -639,7 +694,20 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			},
 		};
 
-		// 5) setProduct (modify)
+		const after = {
+			name: productNode.Name ?? before?.name ?? undefined,
+			description: productNode.Description ?? before?.description ?? undefined,
+			stock:
+				productNode.Stocks?.Stock?.Qty != null
+					? Number(productNode.Stocks.Stock.Qty)
+					: before?.stock ?? undefined,
+			price_net: Number(productNode.Prices.Price.Net),
+			price_gross: Number(productNode.Prices.Price.Gross),
+			currency: productNode.Prices.Price.Currency,
+		};
+		const changes = diffFields(before || {}, after);
+
+		// setProduct (modify)
 		const payload = builder.buildObject({
 			Products: { Product: { Action: 'modify', ...productNode } },
 		});
@@ -648,6 +716,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			const resp = await postXml('setProduct', payload, bearer);
 			if (resp.status < 200 || resp.status >= 300) {
 				stats.failed.push({
+					key: keyRaw,
 					sku: unasSku,
 					status: resp.status,
 					statusText: resp.statusText,
@@ -655,20 +724,26 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				});
 				continue;
 			}
-			stats.modified.push(unasSku);
+			stats.modified.push({
+				key: keyRaw,
+				sku: unasSku,
+				before,
+				after,
+				changes,
+			});
 		} catch (err) {
 			stats.failed.push({
+				key: keyRaw,
 				sku: unasSku,
 				status: err?.response?.status || null,
 				statusText: err?.response?.statusText || String(err?.message || err),
 				raw: err?.response?.data || null,
+				error: String(err?.message || err),
 			});
 		}
 	}
 
-	// cache mentése (ha volt index)
 	if (unasIndex) saveIndexToDisk(shop.shopId, matchCfg, unasIndex);
-
 	return stats;
 }
 

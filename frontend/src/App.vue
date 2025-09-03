@@ -1,3 +1,4 @@
+// frontend/src/App.vue
 <template>
 	<el-container>
 		<el-header>
@@ -35,7 +36,7 @@
 				><el-icon style="vertical-align: middle; margin-right: 4px;"><Plus /></el-icon>Új szinkron létrehozása</el-button
 			>
 
-			<LogsViewer :logs="logs" />
+			<LogsViewer />
 
 			<!-- Modal a ProcessForm számára -->
 			<el-dialog
@@ -60,18 +61,6 @@
 					@save="saveProcess"
 				/>
 			</el-dialog>
-			<!-- <el-dialog v-model="visible" :show-close="false" width="500">
-				<template #header="{ close, titleId, titleClass }">
-					<div class="my-header">
-						<h4 :id="titleId" :class="titleClass">This is a custom header!</h4>
-						<el-button type="danger" @click="close">
-							<el-icon class="el-icon--left"><CircleCloseFilled /></el-icon>
-							Close
-						</el-button>
-					</div>
-				</template>
-				This is dialog content.
-			</el-dialog> -->
 		</el-main>
 	</el-container>
 </template>
@@ -243,5 +232,8 @@
 		background-color: var(--el-color-info-light-5);
 		padding: .5rem 1rem;
 		margin: 0;
+	}
+	.process-modal{
+		max-width: 1000px;
 	}
 </style>

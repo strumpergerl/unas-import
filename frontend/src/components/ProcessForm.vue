@@ -21,7 +21,7 @@
 		<el-form-item label="Szinkron gyakorisága">
 			<el-select v-model="form.frequency">
 				<el-option
-					v-for="opt in ['3h', '6h', '12h', '24h', '48h', '72h', '168h']"
+					v-for="opt in ['12h', '24h', '48h', '72h', '168h']"
 					:key="opt"
 					:label="opt"
 					:value="opt"
@@ -710,7 +710,7 @@
 				const fm = {};
 				mappingKeys.forEach((k, i) => {
 					const v = mappingValues[i];
-					if (k && v) fm[k] = v; // 1:1 mentés
+					if (k && v) fm[k] = v; 
 				});
 				form.fieldMapping = fm;
 
@@ -859,8 +859,6 @@
 </style>
 
 <style>
-	
-
 	.field-mapping .el-form-item__label {
 		align-items: center;
 		justify-content: center;

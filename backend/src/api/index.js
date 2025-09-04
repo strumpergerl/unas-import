@@ -302,6 +302,7 @@ router.post('/run', async (req, res) => {
 
 		try {
 			await addRun(run);
+      
 			console.log('[API/RUN] Log mentve:', run.id);
 		} catch (e) {
 			console.error('[API/RUN] addRun HIBA:', e?.message || e);
@@ -309,41 +310,48 @@ router.post('/run', async (req, res) => {
 	}
 });
 
-/**
- * Firestore-os konfig mentés (processes)
- */
+
+// POST /api/config –  process létrehozása/frissítése 
+// Mentéskor MINDIG referenceAt = most, nextRunAt = null (scheduler újraszámol)
 router.post('/config', async (req, res) => {
-	try {
-		const { processes: newProcesses } = req.body || {};
-		if (!Array.isArray(newProcesses)) {
-			return res.status(400).json({ error: 'processes tömb szükséges' });
-		}
+  try {
+    const p = req.body || {};
 
-		const batch = db.batch();
-		const seen = new Set();
+    // azonosító: id vagy processId; ha nincs, új doksi jön létre
+    const docId = (p.id || p.processId || '').toString().trim();
+    const col = db.collection('processes');
+    const ref = docId ? col.doc(docId) : col.doc();
 
-		newProcesses.forEach((p) => {
-			const id = String(p.processId || '');
-			if (!id) return;
-			seen.add(id);
-			const ref = db.collection('processes').doc(id);
-			const { processId, ...data } = p;
-			batch.set(ref, data, { merge: true });
-		});
+    // minimál ellenőrzés
+    if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
+      return res.status(400).json({ error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")' });
+    }
 
-		const existing = await db.collection('processes').get();
-		existing.forEach((doc) => {
-			if (!seen.has(doc.id)) {
-				batch.delete(db.collection('processes').doc(doc.id));
-			}
-		});
+    const nowIso = new Date().toISOString();
 
-		await batch.commit();
-		res.json({ success: true });
-	} catch (err) {
-		console.error('/config POST error:', err);
-		res.status(500).json({ error: err.message });
-	}
+    // ne írjuk vissza az azonosító/automatikus mezőket
+    const {
+      id, processId, referenceAt, nextRunAt, createdAt, updatedAt,
+      ...data
+    } = p;
+
+    const snap = await ref.get();
+    const isNew = !snap.exists;
+
+    await ref.set({
+      ...data,
+      referenceAt: nowIso,        // <- HORGONY: mindig frissítjük
+      nextRunAt: null,            // <- kényszerítsük az újraszámítást
+      updatedAt: nowIso,
+      ...(isNew ? { createdAt: nowIso } : {})
+    }, { merge: true });
+
+    const saved = await ref.get();
+    res.json({ id: ref.id, ...saved.data() });
+  } catch (err) {
+    console.error('/config POST error:', err);
+    res.status(500).json({ error: err.message || 'Hiba' });
+  }
 });
 
 /**

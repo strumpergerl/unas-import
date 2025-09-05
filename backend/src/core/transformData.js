@@ -181,6 +181,13 @@ async function transformData(records, processConfig) {
     vat = 0,
   } = processConfig;
 
+  console.log('[Transforming data] with config:', {
+	fieldMapping,
+	stockThreshold,
+	pricingFormula,
+
+  });
+
   const baseKey = Object.entries(fieldMapping).find(([, dst]) => dst === 'price')?.[0] || null;
 
   const vatFactor = Big(1).plus(Big(vat).div(100));
@@ -194,7 +201,7 @@ async function transformData(records, processConfig) {
 
     // 1) Átlagos mezők másolása
     for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
-      const dst = String(dstKey || '').toLowerCase();
+      const dst = String(dstKey || '')
       if (dst === 'price' || dst === 'stock') continue;
       transformed[dst] = record[srcKey];
     }
@@ -241,7 +248,8 @@ async function transformData(records, processConfig) {
         net = Big(netConv);
         gross = net.times(vatFactor); // bruttó mindig nettóból
       } catch {
-        // ha gond van árfolyammal, marad az eredeti deviza
+        console.warn('Currency conversion failed, using original prices');
+		return;
       }
     }
 
@@ -273,12 +281,13 @@ async function transformData(records, processConfig) {
         const n = Number(cleaned);
         feedStock = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
       }
-      if (Number.isFinite(stockThreshold) && feedStock < stockThreshold) {
-        feedStock = 0;
-      }
-      transformed.stock = feedStock;
-      transformed.orderable = feedStock > 0;
-    }
+      // Ha a feedben a készlet nagyobb, mint a küszöb, csak a "Vásárolható, ha nincs Raktáron" mezőt állítjuk
+      if (Number.isFinite(stockThreshold) && feedStock >= stockThreshold) {
+        transformed.orderable = 1;
+      } else {
+		transformed.orderable = 0;
+	  }
+	}
 
     return transformed;
   }));

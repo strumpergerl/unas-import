@@ -49,7 +49,11 @@ router.get('/unas/fields', async (req, res) => {
 		}
 
 		const { headers } = await fetchProductDbHeaders({ apiKey, paramsXml });
-		const fields = headers.map((h) => ({ key: String(h), label: String(h) }));
+		const fields = headers.map((h) => ({
+			key: String(h.key || h),
+			label: String(h.label || h),
+			id: h.id !== undefined ? String(h.id) : null,
+		}));
 
 		return res.json({ shopId, count: fields.length, fields });
 	} catch (e) {
@@ -113,6 +117,11 @@ router.get('/feed/headers', async (req, res) => {
 			.map((h) => ({ key: h, label: String(h).trim() }))
 			.filter((f) => f.label);
 		res.json({ count: fields.length, fields });
+		console.log('[API] /api/feed/headers', {
+			url,
+			count: fields.length,
+			sample: fields.slice(0, 3),
+		});
 	} catch (e) {
 		console.error('[GET /api/feed/headers] error:', e);
 		res.status(500).json({ error: e.message || 'Ismeretlen hiba' });
@@ -153,7 +162,7 @@ router.post('/run', async (req, res) => {
 		const {
 			processId,
 			feedUrl,
-			fieldMapping = {},
+			fieldMapping = [],
 			pricingFormula = '',
 			rounding = 1,
 			vat = 27,
@@ -239,10 +248,12 @@ router.post('/run', async (req, res) => {
 			run.counts.failed = uploadResult?.failed?.length || 0;
 
 			for (const m of uploadResult?.modified || []) {
+        const hasChange = m.changes && Object.keys(m.changes).length > 0;
 				run.items.push({
 					key: m.key ?? null,
 					sku: m.sku ?? null,
-					action: 'modify',
+          unasKey: m.unasKey ?? null, 
+					action: hasChange ? 'modify' : 'skip',
 					changes: m.changes || {},
 					before: m.before ?? null,
 					after: m.after ?? null,
@@ -252,6 +263,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: s.key ?? null,
 					sku: null,
+		      unasKey: m.unasKey ?? null, 
 					action: 'skip',
 					changes: {},
 					before: null,
@@ -263,6 +275,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: s.key ?? null,
 					sku: null,
+          unasKey: m.unasKey ?? null, 
 					action: 'skip',
 					changes: {},
 					before: null,
@@ -274,6 +287,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: f.key ?? null,
 					sku: f.sku ?? null,
+          unasKey: m.unasKey ?? null, 
 					action: 'fail',
 					changes: {},
 					before: null,
@@ -302,7 +316,7 @@ router.post('/run', async (req, res) => {
 
 		try {
 			await addRun(run);
-      
+
 			console.log('[API/RUN] Log mentve:', run.id);
 		} catch (e) {
 			console.error('[API/RUN] addRun HIBA:', e?.message || e);
@@ -310,48 +324,59 @@ router.post('/run', async (req, res) => {
 	}
 });
 
-
-// POST /api/config –  process létrehozása/frissítése 
+// POST /api/config –  process létrehozása/frissítése
 // Mentéskor MINDIG referenceAt = most, nextRunAt = null (scheduler újraszámol)
 router.post('/config', async (req, res) => {
-  try {
-    const p = req.body || {};
+	try {
+		const p = req.body || {};
 
-    // azonosító: id vagy processId; ha nincs, új doksi jön létre
-    const docId = (p.id || p.processId || '').toString().trim();
-    const col = db.collection('processes');
-    const ref = docId ? col.doc(docId) : col.doc();
+		// azonosító: id vagy processId; ha nincs, új doksi jön létre
+		const docId = (p.id || p.processId || '').toString().trim();
+		const col = db.collection('processes');
+		const ref = docId ? col.doc(docId) : col.doc();
 
-    // minimál ellenőrzés
-    if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
-      return res.status(400).json({ error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")' });
-    }
+		// minimál ellenőrzés
+		if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
+			return res
+				.status(400)
+				.json({
+					error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")',
+				});
+		}
 
-    const nowIso = new Date().toISOString();
+		const nowIso = new Date().toISOString();
 
-    // ne írjuk vissza az azonosító/automatikus mezőket
-    const {
-      id, processId, referenceAt, nextRunAt, createdAt, updatedAt,
-      ...data
-    } = p;
+		// ne írjuk vissza az azonosító/automatikus mezőket
+		const {
+			id,
+			processId,
+			referenceAt,
+			nextRunAt,
+			createdAt,
+			updatedAt,
+			...data
+		} = p;
 
-    const snap = await ref.get();
-    const isNew = !snap.exists;
+		const snap = await ref.get();
+		const isNew = !snap.exists;
 
-    await ref.set({
-      ...data,
-      referenceAt: nowIso,        // <- HORGONY: mindig frissítjük
-      nextRunAt: null,            // <- kényszerítsük az újraszámítást
-      updatedAt: nowIso,
-      ...(isNew ? { createdAt: nowIso } : {})
-    }, { merge: true });
+		await ref.set(
+			{
+				...data,
+				referenceAt: nowIso, // <- HORGONY: mindig frissítjük
+				nextRunAt: null, // <- kényszerítsük az újraszámítást
+				updatedAt: nowIso,
+				...(isNew ? { createdAt: nowIso } : {}),
+			},
+			{ merge: true }
+		);
 
-    const saved = await ref.get();
-    res.json({ id: ref.id, ...saved.data() });
-  } catch (err) {
-    console.error('/config POST error:', err);
-    res.status(500).json({ error: err.message || 'Hiba' });
-  }
+		const saved = await ref.get();
+		res.json({ id: ref.id, ...saved.data() });
+	} catch (err) {
+		console.error('/config POST error:', err);
+		res.status(500).json({ error: err.message || 'Hiba' });
+	}
 });
 
 /**

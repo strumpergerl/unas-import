@@ -51,6 +51,7 @@ const formulaHasVat = (formula) =>
 
 // ---- Mezők kiválasztása a feed rekordból  ----
 function pickFeedKeyValueDynamic(rec, feedKey) {
+	console.log('[DEBUG] pickFeedKeyValueDynamic', { rec, feedKey });
 	return rec?.[feedKey];
 }
 
@@ -122,9 +123,6 @@ async function postXml(pathSeg, xmlBody, bearer) {
 	});
 }
 
-
-
-
 /* ============================
    UNAS index építés (determinista)
    ============================ */
@@ -143,60 +141,66 @@ const loadIndexFromFirestore = async (shopId, cfg) => {
 	return new Map(Object.entries(data.pairs || {}));
 };
 
-
 const saveIndexToFirestore = async (shopId, cfg, idx) => {
-    const docId = `${shopId}_${hash(cfg)}`;
-    const obj = Object.fromEntries(idx.entries());
-    if (Object.keys(obj).length > 6666) {
-        console.warn('[BACKEND] Firestore mentés kihagyva: túl nagy index!');
-        return;
-    }
-    const payload = {
-        updatedAt: new Date().toISOString(),
-        pairs: obj,
-    };
-    try {
-        await db.collection('unasIndexes').doc(docId).set(payload, { merge: true });
-    } catch (e) {
-        console.error('[BACKEND] Firestore írás HIBA:', e.message || e);
-    }
+	const docId = `${shopId}_${hash(cfg)}`;
+	const obj = Object.fromEntries(idx.entries());
+	if (Object.keys(obj).length > 6666) {
+		console.warn('[BACKEND] Firestore mentés kihagyva: túl nagy index!');
+		return;
+	}
+	const payload = {
+		updatedAt: new Date().toISOString(),
+		pairs: obj,
+	};
+	try {
+		await db.collection('unasIndexes').doc(docId).set(payload, { merge: true });
+	} catch (e) {
+		console.error('[BACKEND] Firestore írás HIBA:', e.message || e);
+	}
 };
 
-
 function makeUnasIndex(rows, unasKey) {
-    const idx = new Map();
-    for (const row of rows) {
-        const key = row[unasKey];
-        if (key) idx.set(key, { ...row, sku: key });
-    }
-    return idx;
+	const idx = new Map();
+	for (const row of rows) {
+		const key = row[unasKey];
+		const cikkszam = row['Cikkszám'] || row['sku'] || key;
+		idx.set(key, { ...row, sku: cikkszam });
+	}
+	return idx;
 }
 
 async function buildDynamicUnasIndex(shopId, cfg, rows, unasKey) {
-    const cKey = cacheKeyFor(shopId, cfg);
-    if (memIndexCache.has(cKey)) return memIndexCache.get(cKey);
+	const cKey = cacheKeyFor(shopId, cfg);
+	if (memIndexCache.has(cKey)) return memIndexCache.get(cKey);
 
-    // Próbáljuk betölteni Firestore-ból
-    const disk = await loadIndexFromFirestore(shopId, cfg);
-    if (disk) {
-        memIndexCache.set(cKey, disk);
-        return disk;
-    }
+	// Próbáljuk betölteni Firestore-ból
+	const disk = await loadIndexFromFirestore(shopId, cfg);
+	if (disk) {
+		memIndexCache.set(cKey, disk);
+		return disk;
+	}
 
-    // Ha nincs cache, építsük fel
-    const idx = makeUnasIndex(rows, unasKey);
-    memIndexCache.set(cKey, idx);
-    // Mentés aszinkron, nem várjuk meg
-    // saveIndexToFirestore(shopId, cfg, idx);
-    return idx;
+	// Ha nincs cache, építsük fel
+	const idx = makeUnasIndex(rows, unasKey);
+	memIndexCache.set(cKey, idx);
+	// saveIndexToFirestore(shopId, cfg, idx);
+	return idx;
 }
-
 
 async function downloadProductDbCsv(bearer, paramsXml) {
 	const reqXml =
 		paramsXml && paramsXml.trim()
 			? paramsXml
-			: builder.buildObject({ Params: { Format: 'csv2' } });
+			: builder.buildObject({
+					Params: {
+						Format: 'csv2',
+						GetName: 1,
+						GetStatus: 1,
+						GetPrice: 1,
+						GetStock: 1,
+						GetParam: 1,
+					},
+			  });
 	const genResp = await postXml('getProductDB', reqXml, bearer);
 	if (genResp.status < 200 || genResp.status >= 300) {
 		throw new Error(
@@ -228,6 +232,8 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 		delimiter: ';',
 	});
 	const header = rows[0] ? Object.keys(rows[0]) : [];
+
+
 	return { rows, header };
 }
 
@@ -260,11 +266,9 @@ async function fetchProductBySku(bearer, sku) {
 
 		const before = {
 			name: String(product?.Name ?? ''),
-			description: String(product?.Description ?? ''),
 			stock: Number(firstStock?.Qty ?? 0) || 0,
 			price_net: Number(normalPrice?.Net ?? 0) || 0,
-			price_gross: Number(normalPrice?.Gross ?? 0) || 0,
-			currency: String(normalPrice?.Currency ?? '') || null,
+			price_gross: Number(normalPrice?.Gross ?? 0) || 0
 		};
 		return { exists: true, product, before };
 	} catch {
@@ -276,11 +280,10 @@ function diffFields(before, after) {
 	const changes = {};
 	const fields = [
 		'name',
-		'description',
 		'stock',
 		'price_net',
 		'price_gross',
-		'currency',
+		'orderable',
 	];
 	for (const f of fields) {
 		const b = before?.[f];
@@ -308,18 +311,29 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 	const feedKey = keyFields.feed;
 	const unasKey = keyFields.unas;
 
-	console.log(`[UNAS] Feltöltés indítása: ${records.length} rekord, shopId=${shopId}, feedKey=${feedKey}, unasKey=${unasKey}, dryRun=${!!dryRun}`);
+	console.log(
+		`[UNAS] Feltöltés indítása: ${
+			records.length
+		} rekord, shopId=${shopId}, feedKey=${feedKey}, unasKey=${unasKey}, dryRun=${!!dryRun}`
+	);
 
 	// --- UNAS termékek letöltése ---
 	const { rows } = await downloadProductDbCsv(
 		bearer,
 		processConfig.productDbParamsXml
 	);
-	const unasIndex = await buildDynamicUnasIndex(shopId, processConfig, rows, unasKey);
+	const unasIndex = await buildDynamicUnasIndex(
+		shopId,
+		processConfig,
+		rows,
+		unasKey
+	);
 
 	const stats = {
 		shopId: shop.shopId,
 		shopName: shop.name,
+		feedKey,
+		unasKey,
 		keyFields,
 		total: records.length,
 		modified: [],
@@ -328,22 +342,24 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		failed: [],
 		dryRun: !!dryRun,
 	};
+	// console.log(`[UNAS] UNAS index készen áll: ${unasIndex}`);
 
 	for (const rec of records) {
-		const keyRaw = pickFeedKeyValueDynamic(rec, feedKey);
-		console.log(`[UNAS] Feldolgozás: feedKey=${feedKey}, keyRaw=${keyRaw}`);
-		if (!keyRaw) {
+		// console.log(`[UNAS] Feldolgozás: feedKey=${feedKey}, unasKey=${unasKey}`);
+		console.log('[UNAS] Rekord:', rec);
+		if (!feedKey) {
 			stats.skippedNoKey.push({
 				key: null,
 				reason: `Hiányzik feedKey: ${feedKey}`,
 			});
 			continue;
 		}
-		const entry = unasIndex.get(keyRaw);
+		const entry = unasIndex.get(rec[unasKey]);
+		console.log('[UNAS] Talált UNAS entry:', entry);
 		if (!entry || !entry.sku) {
 			stats.skippedNotFound.push({
-				key: keyRaw,
-				reason: 'UNAS SKU nem található (index alapján)',
+				key: unasKey,
+				reason: `Nem található ${feedKey}-nek megfelelő adat ebben a mezőben: ${unasKey}`,
 			});
 			continue;
 		}
@@ -361,7 +377,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		if (dryRun) {
 			stats.modified.push({
-				key: keyRaw,
+				key: feedKey,
 				sku: unasSku,
 				before: null,
 				after,
@@ -390,11 +406,26 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		const productNode = { Sku: unasSku };
 		if (rec.name != null) productNode.Name = String(rec.name);
-		if (rec.description != null)
-			productNode.Description = String(rec.description);
-		if (rec.stock != null) {
-			const qty = Math.max(0, Math.trunc(Number(rec.stock) || 0));
-			productNode.Stocks = { Stock: { Qty: String(qty) } };
+		// if (rec.stock != null) {
+		// 	const qty = Math.max(0, Math.trunc(Number(rec.stock) || 0));
+		// 	productNode.Stocks = { Stock: { Qty: String(qty) } };
+		// }
+
+		// Paraméterként adjuk át a "Vásárolható, ha nincs Raktáron" mezőt
+		if (rec.orderable !== undefined) {
+			const paramKeys = ['Vásárolható, ha nincs Raktáron'];
+			const parameters = [];
+			for (const key of paramKeys) {
+				if (rec[key] !== undefined) {
+					parameters.push({
+						Name: key,
+						Value: String(rec[key]),
+					});
+				}
+			}
+			if (parameters.length) {
+				productNode.Parameters = parameters;
+			}
 		}
 		productNode.Prices = {
 			Price: {
@@ -416,8 +447,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			const resp = await postXml('setProduct', payload, bearer);
 			if (resp.status < 200 || resp.status >= 300) {
 				stats.failed.push({
-					key: keyRaw,
+					key: feedKey,
 					sku: unasSku,
+					unasKey,
 					status: resp.status,
 					statusText: resp.statusText,
 					raw: resp.data,
@@ -425,16 +457,18 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				continue;
 			}
 			stats.modified.push({
-				key: keyRaw,
+				key: feedKey,
 				sku: unasSku,
+				unasKey,
 				before,
 				after,
 				changes,
 			});
 		} catch (err) {
 			stats.failed.push({
-				key: keyRaw,
+				key: feedKey,
 				sku: unasSku,
+				unasKey,
 				status: err?.response?.status || null,
 				statusText: err?.response?.statusText || String(err?.message || err),
 				raw: err?.response?.data || null,

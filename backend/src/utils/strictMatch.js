@@ -2,11 +2,11 @@
 const { canonicalizeKey } = require('../utils/key');
 
 function matchByExactKey(feedRow, indexMap, feedKeyField, { caseSensitive = true } = {}) {
-  const keyRaw = feedRow?.[feedKeyField];
-  const key = canonicalizeKey(keyRaw, { caseSensitive });
+  const feedKey = feedRow?.[feedKeyField];
+  const key = canonicalizeKey(feedKey, { caseSensitive });
   const entry = key ? indexMap.get(key) : undefined;
 
-  return { keyRaw, key, entry };
+  return { feedKey, key, entry };
 }
 
 module.exports = { matchByExactKey };

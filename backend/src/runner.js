@@ -181,12 +181,13 @@ async function runProcessById(processId) {
 
 		// Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
 		for (const m of stats.modified || []) {
+      const hasChange = m.changes && Object.keys(m.changes).length > 0;
 			run.items.push({
 				key: m.key ?? null,
 				sku: m.sku ?? null,
-				action: 'modify',
+				unasKey: m.unasKey ?? null, 
+				action: hasChange ? 'modify' : 'skip',
 				changes: m.changes || {},
-				// Ha túl nagy lenne, itt érdemes lehet csak kivonatot menteni:
 				before: m.before ?? null,
 				after: m.after ?? null,
 			});
@@ -195,6 +196,7 @@ async function runProcessById(processId) {
 			run.items.push({
 				key: s.key ?? null,
 				sku: null,
+				unasKey: s.unasKey ?? null,
 				action: 'skip',
 				changes: {},
 				before: null,
@@ -206,6 +208,7 @@ async function runProcessById(processId) {
 			run.items.push({
 				key: s.key ?? null,
 				sku: null,
+				unasKey: s.unasKey ?? null, 
 				action: 'skip',
 				changes: {},
 				before: null,
@@ -217,6 +220,7 @@ async function runProcessById(processId) {
 			run.items.push({
 				key: f.key ?? null,
 				sku: f.sku ?? null,
+				unasKey: f.unasKey ?? null, 
 				action: 'fail',
 				changes: {},
 				before: null,

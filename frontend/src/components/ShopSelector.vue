@@ -23,14 +23,20 @@ export default {
   },
   emits: ['update:shopId'],
   data() {
-    return { internalShopId: this.shopId };
+    const saved = localStorage.getItem('selectedShopId');
+    return { internalShopId: saved || this.shopId };
   },
   watch: {
-    // Ha kívülről változik a shopId, szinkronizáljuk
     shopId(val) { this.internalShopId = val; }
+  },
+  mounted() {
+    if (localStorage.getItem('selectedShopId')) {
+      this.$emit('update:shopId', localStorage.getItem('selectedShopId'));
+    }
   },
   methods: {
     onChange(val) {
+      localStorage.setItem('selectedShopId', val); // Mentés localStorage-be
       this.$emit('update:shopId', val);
     }
   }

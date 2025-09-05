@@ -133,7 +133,7 @@ async function fetchProductDbHeaders({ apiKey, paramsXml }) {
 	const token = await getTokenCached(apiKey);
 	const link = await requestProductDbLink(token, paramsXml);
 
-	// CSV letöltés (csak a fejléc kell)
+	// CSV letöltés
 	const dl = await axios.get(link, {
 		responseType: 'arraybuffer',
 		timeout: UNAS_DOWNLOAD_TIMEOUT_MS,

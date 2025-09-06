@@ -3,6 +3,10 @@ require('./bootstrapEnv');
 const cron = require('node-cron'); // csak a napi prune-hoz
 const { db } = require('./db/firestore');
 const { runProcessById, pruneOldRuns } = require('./runner');
+const inngest = require("./inngest");
+const { allowCronOrUser, requireFirebaseUser } = require('./middlewares/auth');
+const express = require('express');
+const { InngestExpress } = require('inngest/express');
 
 /** "30m", "3h", "1d", "45s" → ms */
 function parseFrequencyToMs(freq) {
@@ -137,4 +141,33 @@ function stop() {
   console.log('[SCHED] leállítva.');
 }
 
-module.exports = { start, stop, nextFromReference, parseFrequencyToMs };
+// Inngest beállítása és ütemezett függvény definiálása
+const runImport = inngest.createFunction(
+  { id: "scheduled-import" },
+  { cron: "0 3 * * *" }, // minden nap 3:00-kor
+  async ({ event, step }) => {
+    const processId = event.data.processId;
+    if (!processId) {
+      console.warn("[INNGEST] scheduled-import: hiányzó processId az eseményben.");
+      return { ok: false, error: "Hiányzó processId" };
+    }
+
+    if (running.has(processId)) {
+      console.warn(`[INNGEST] ${processId}: még fut az előző példány, kihagyom ezt az időpontot.`);
+      return { ok: false, error: "Még fut az előző példány" };
+    }
+    running.add(processId);
+    try {
+      await runProcessById(processId);
+    } catch (e) {
+      console.error(`[INNGEST] ${processId}: futási hiba:`, e?.message || e);
+      return { ok: false, error: e?.message || e };
+    } finally {
+      running.delete(processId);
+    }
+
+    return { ok: true };
+  }
+);
+
+module.exports = { start, stop, nextFromReference, parseFrequencyToMs, runImport };

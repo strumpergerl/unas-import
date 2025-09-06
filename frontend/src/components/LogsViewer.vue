@@ -1,4 +1,96 @@
+
 <!-- frontend/src/components/LogsViewer.vue -->
+<script setup>
+import { onMounted, ref, onBeforeUnmount, computed } from 'vue';
+import api from '../services/api';
+import { auth, db } from '../firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+
+const rows = ref([]);
+const loading = ref(false);
+const VITE_USE_FS_CLIENT_READ = import.meta.env.VITE_USE_FS_CLIENT_READ;
+const pageSize = ref(10);
+const currentPage = ref(1);
+
+const pagedRows = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return rows.value.slice(start, start + pageSize.value);
+});
+
+function handlePageChange(page) {
+  currentPage.value = page;
+}
+
+function hasChanges(it) {
+	return it && it.changes && Object.keys(it.changes).length > 0;
+}
+
+let fsUnsub = null;
+function stopFs() { if (typeof fsUnsub === 'function') { try { fsUnsub(); } catch {} } fsUnsub = null; }
+function startFs() {
+  stopFs();
+  fsUnsub = onSnapshot(
+    query(collection(db, 'runs'), orderBy('startedAt', 'desc'), limit(100)),
+    (snap) => {
+      rows.value = snap.docs.map(d => ({ id: d.id, ...d.data() })); // NINCS értékátalakítás
+    }
+  );
+}
+
+function tagType(action) {
+  if (action === 'insert') return 'success';
+  if (action === 'update') return 'warning';
+  if (action === 'delete') return 'danger';
+  return '';
+}
+
+onAuthStateChanged(auth, (u) => {
+  // Ha engedélyezett a Firestore read és be van jelentkezve a user, használjuk a streamet,
+  // különben marad az API.
+  stopFs();
+  if (VITE_USE_FS_CLIENT_READ && u) {
+    startFs();
+  } else {
+    load(); // API fallback
+  }
+});
+
+function toDateAny(v) {
+  if (!v) return null;
+  if (typeof v === 'string' || typeof v === 'number') return new Date(v);
+  if (typeof v?.toDate === 'function') return v.toDate(); // Firestore Timestamp
+  return null;
+}
+function fmt(v) {
+  const d = toDateAny(v);
+  return d ? d.toLocaleString() : '—';
+}
+function prettyMs(ms) {
+  if (!ms && ms !== 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+async function load() {
+  loading.value = true;
+  try {
+    const { data } = await api.getLogs(); // GET /api/logs
+    rows.value = Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.error('Log betöltési hiba:', e);
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(() => { if (!VITE_USE_FS_CLIENT_READ) load(); });
+onBeforeUnmount(stopFs);
+</script>
+
 <template>
 	<div class="p-4">
 		<div class="flex items-center justify-between mb-3">
@@ -33,7 +125,7 @@
 							>
 						</div>
 
-						<el-table :data="row.items" border size="small">
+						<el-table :data="row.items" border size="small" row-key="sku">
 							<el-table-column label="#" type="index" width="50" />
 							<el-table-column prop="action" label="Akció" width="90">
 								<template #default="{ row: it }">
@@ -132,84 +224,3 @@
 		/>
 	</div>
 </template>
-
-<script setup>
-import { onMounted, ref, onBeforeUnmount, computed } from 'vue';
-import api from '../services/api';
-// import { VITE_USE_FS_CLIENT_READ } from '../config';
-import { auth, db } from '../firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-
-const rows = ref([]);
-const loading = ref(false);
-const VITE_USE_FS_CLIENT_READ = import.meta.env.VITE_USE_FS_CLIENT_READ;
-const pageSize = ref(10);
-const currentPage = ref(1);
-
-const pagedRows = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  return rows.value.slice(start, start + pageSize.value);
-});
-
-function handlePageChange(page) {
-  currentPage.value = page;
-}
-
-let fsUnsub = null;
-function stopFs() { if (typeof fsUnsub === 'function') { try { fsUnsub(); } catch {} } fsUnsub = null; }
-function startFs() {
-  stopFs();
-  fsUnsub = onSnapshot(
-    query(collection(db, 'runs'), orderBy('startedAt', 'desc'), limit(100)),
-    (snap) => {
-      rows.value = snap.docs.map(d => ({ id: d.id, ...d.data() })); // NINCS értékátalakítás
-    }
-  );
-}
-
-onAuthStateChanged(auth, (u) => {
-  // Ha engedélyezett a Firestore read és be van jelentkezve a user, használjuk a streamet,
-  // különben marad az API.
-  stopFs();
-  if (VITE_USE_FS_CLIENT_READ && u) {
-    startFs();
-  } else {
-    load(); // API fallback
-  }
-});
-
-function toDateAny(v) {
-  if (!v) return null;
-  if (typeof v === 'string' || typeof v === 'number') return new Date(v);
-  if (typeof v?.toDate === 'function') return v.toDate(); // Firestore Timestamp
-  return null;
-}
-function fmt(v) {
-  const d = toDateAny(v);
-  return d ? d.toLocaleString() : '—';
-}
-function prettyMs(ms) {
-  if (!ms && ms !== 0) return '—';
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
-
-async function load() {
-  loading.value = true;
-  try {
-    const { data } = await api.getLogs(); // GET /api/logs
-    rows.value = Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.error('Log betöltési hiba:', e);
-  } finally {
-    loading.value = false;
-  }
-}
-onMounted(() => { if (!VITE_USE_FS_CLIENT_READ) load(); });
-onBeforeUnmount(stopFs);
-</script>

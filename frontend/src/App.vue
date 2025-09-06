@@ -140,6 +140,7 @@
 			const editedProcess = ref({});
 
 			const loadConfig = async () => {
+				if (!user.value) return;
 				const res = await api.getConfig();
 				shops.value = res.data.shops;
 				processes.value = res.data.processes;
@@ -149,6 +150,7 @@
 			};
 
 			const loadLogs = async () => {
+				if (!user.value) return;
 				const res = await api.getLogs();
 				logs.value = res.data;
 			};
@@ -285,13 +287,22 @@
 				await signOut(auth);
 			}
 
+
 			onMounted(() => {
-				loadConfig();
-				loadLogs();
-				setInterval(loadLogs, 100000);
+				if (user.value) {
+					loadConfig();
+					loadLogs();
+				}
+				setInterval(() => {
+					if (user.value) loadLogs();
+				}, 100000);
 				const un = onAuthStateChanged(auth, (u) => {
 					user.value = u;
 					ready.value = true;   // <-- csak ekkor engedjük a UI-t dönteni
+					if (u) {
+						loadConfig();
+						loadLogs();
+					}
 				});
 			});
 

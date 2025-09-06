@@ -9,9 +9,10 @@
   ],
   "scripts": {
     "install:all": "npm install",
+    "dev:inngest": "cross-env NODE_ENV=development npm --workspace=backend run ingest",
     "dev:backend": "cross-env NODE_ENV=development npm --workspace=backend run dev",
     "dev:frontend": "cross-env NODE_ENV=development npm --workspace=frontend run dev",
-    "dev": "cross-env NODE_ENV=development pm2 start ecosystem.config.js --env development && concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "cross-env NODE_ENV=development pm2 start ecosystem.config.js --env development && concurrently --names \"BACKEND,FRONTEND,INGEST\" -c \"blue,green,magenta\" \"npm run dev:backend\" \"npm run dev:frontend\" \"npm --workspace=backend run dev:ingest\"",
     "devNoPm2": "cross-env NODE_ENV=development concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build:frontend": "cross-env NODE_ENV=production npm --workspace=frontend run build",
     "start:backend": "cross-env NODE_ENV=production npm --workspace=backend run start",

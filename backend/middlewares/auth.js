@@ -1,5 +1,5 @@
 // backend/src/middlewares/auth.js
-const { admin } = require('../db/firestore');
+const { admin } = require('../src/db/firestore');
 
 async function requireFirebaseUser(req, res, next) {
   const h = req.headers.authorization || '';

@@ -12,6 +12,7 @@ const transformData = require('../core/transformData');
 const uploadToUnas = require('../core/uploadToUnas');
 const rateUpdater = require('../utils/rateUpdater');
 const { getLogs, addRun } = require('../runner');
+const { requireFirebaseUser, allowCronOrUser } = require('../../middlewares/auth');
 
 const router = express.Router();
 router.use(express.json());
@@ -27,6 +28,14 @@ function safeJson(res, status, payload) {
 			.end('{"error":"Internal error"}');
 	}
 }
+
+// Healthcheck 
+router.get('/health', (_req, res) => {
+	safeJson(res, 200, { ok: true, time: new Date().toISOString() });
+});
+
+// Auth middlewarek
+router.use(allowCronOrUser(requireFirebaseUser)); // minden további endpoint auth-olt
 
 /** UNAS ProductDB mezőlista adott shopDocId szerint */
 router.get('/unas/fields', async (req, res) => {
@@ -126,11 +135,6 @@ router.get('/feed/headers', async (req, res) => {
 		console.error('[GET /api/feed/headers] error:', e);
 		res.status(500).json({ error: e.message || 'Ismeretlen hiba' });
 	}
-});
-
-// Healthcheck (hasznos debughoz)
-router.get('/health', (_req, res) => {
-	safeJson(res, 200, { ok: true, time: new Date().toISOString() });
 });
 
 // --- FUTTATÁS INDÍTÁSA ---

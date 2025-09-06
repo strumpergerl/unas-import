@@ -1,5 +1,6 @@
 // frontend/src/services/api.js
 import axios from 'axios';
+import { auth } from '../firestore';
 import { ElLoading } from 'element-plus';
 
 const base = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -24,10 +25,15 @@ const hide = () => {
 	}
 };
 
-api.interceptors.request.use((config) => {
-	activeRequests++;
-	show();
-	return config;
+api.interceptors.request.use(async (config) => {
+  const user = auth.currentUser;
+  if (user) {
+    const token = await user.getIdToken();
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  activeRequests++;
+  show();
+  return config;
 });
 
 api.interceptors.response.use(

@@ -25,10 +25,10 @@
 					/></el-icon>
 				</h1>
 				<template v-if="user">
-						<el-button @click="logout" circle type="danger">
-							<el-icon><SwitchButton /></el-icon>
-						</el-button>
-					</template>
+					<el-button @click="logout" circle type="danger">
+						<el-icon><SwitchButton /></el-icon>
+					</el-button>
+				</template>
 			</div>
 		</el-header>
 		<template v-if="ready && user">
@@ -36,6 +36,11 @@
 			<el-main>
 				<ExchangeRates />
 				<div class="webshop-switcher-line">
+					<el-button type="success" class="new-process-btn" @click="openForm()"
+						><el-icon style="vertical-align: middle; margin-right: 4px"
+							><Plus /></el-icon
+						>Új szinkron létrehozása</el-button
+					>
 					<ShopSelector v-model:shopId="selectedShop" :shops="shops" />
 				</div>
 				<ProcessTable
@@ -45,11 +50,6 @@
 					@delete="handleDelete"
 					@run-complete="loadLogs"
 				/>
-				<el-button type="primary" class="new-process-btn" @click="openForm()"
-					><el-icon style="vertical-align: middle; margin-right: 4px"
-						><Plus /></el-icon
-					>Új szinkron létrehozása</el-button
-				>
 
 				<LogsViewer />
 
@@ -185,7 +185,7 @@
 						priceMargin: 0,
 						discount: 0,
 						rounding: 100,
-						fieldMapping: {}
+						fieldMapping: {},
 					};
 				}
 				showForm.value = true;
@@ -347,14 +347,6 @@
 		background-color: #f5f5f5;
 		padding-bottom: 4rem;
 	}
-
-	.new-process-btn {
-		position: fixed;
-		bottom: 1rem;
-		right: 1rem;
-		z-index: 1000;
-	}
-
 	.process-modal .el-dialog__header {
 		padding-right: 0 !important;
 	}
@@ -377,7 +369,7 @@
 	}
 	.webshop-switcher-line {
 		display: flex;
-		justify-content: flex-end;
+		justify-content: space-between;
 		margin-bottom: 1rem;
 		background-color: var(--el-color-info-light-5);
 		padding: 0.5rem 1rem;

@@ -1,18 +1,18 @@
 // api/[[...all]].js
-console.log('[[...all]] handler loaded');
 const express = require('express');
-const apiRouter = require('../backend/src/api');
+const apiRouter = require('../backend/src/api'); // <-- a te express Router-ed
 
 const app = express();
 
-// (Opcionális) /api prefix levágása, ha így érkezik a req.url
+// Ha a routered /rates, /logs stb. útvonalakat vár, jó eséllyel itt még /api/ prefix van.
+// Vercelen a req.url általában tartalmazza a /api/ prefixet – vágjuk le:
 app.use((req, _res, next) => {
   if (req.url.startsWith('/api/')) req.url = req.url.slice(4);
   next();
 });
 
-// Mountold az Express routert ( /config, /rates, /logs, stb. )
+// Csatold az API routert
 app.use(apiRouter);
 
-// Vercel Node handler: (req, res) -> app(req, res)
+// Vercel handler (nincs app.listen!)
 module.exports = (req, res) => app(req, res);

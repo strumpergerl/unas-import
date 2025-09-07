@@ -15,7 +15,10 @@
 					/></el-icon>
 					Unas szinkron
 					<span v-if="selectedShop">
-						- {{ shops.find((s) => s.shopId === selectedShop)?.name || '' }}
+						-
+						{{
+							(shops || []).find((s) => s.shopId === selectedShop)?.name || ''
+						}}
 					</span>
 					<el-icon style="vertical-align: middle; margin-left: 8px"
 						><Sunny
@@ -25,7 +28,7 @@
 		</el-header>
 		<template v-if="ready && user">
 			<!-- <router-view /> -->
-				<el-main>
+			<el-main>
 				<ExchangeRates />
 				<div class="webshop-switcher-line">
 					<template v-if="user">
@@ -62,7 +65,8 @@
 								{{
 									selectedShop
 										? ' - ' +
-										(shops.find((s) => s.shopId === selectedShop)?.name || '')
+										  ((shops || []).find((s) => s.shopId === selectedShop)
+												?.name || '')
 										: ''
 								}}
 							</h1>
@@ -83,15 +87,15 @@
 		<template v-else-if="ready && !user">
 			<el-main style="text-align: center; padding-top: 5rem">
 				<h2>Nem vagy bejelentkezve</h2>
-			<p>Kérlek jelentkezz be az admin felülethez.</p>
+				<p>Kérlek jelentkezz be az admin felülethez.</p>
 				<el-button size="small" type="primary" @click="login"
 					>Bejelentkezés</el-button
 				>
 			</el-main>
 		</template>
 
-  <!-- Auth állapot még nem ismert -->
-  <template v-else >Betöltés…</template>
+		<!-- Auth állapot még nem ismert -->
+		<template v-else>Betöltés…</template>
 	</el-container>
 </template>
 
@@ -287,7 +291,6 @@
 				await signOut(auth);
 			}
 
-
 			onMounted(() => {
 				if (user.value) {
 					loadConfig();
@@ -298,7 +301,7 @@
 				}, 100000);
 				const un = onAuthStateChanged(auth, (u) => {
 					user.value = u;
-					ready.value = true;   // <-- csak ekkor engedjük a UI-t dönteni
+					ready.value = true; // <-- csak ekkor engedjük a UI-t dönteni
 					if (u) {
 						loadConfig();
 						loadLogs();
@@ -306,8 +309,12 @@
 				});
 			});
 
-			async function login() { await signInWithPopup(auth, new GoogleAuthProvider()); }
-			async function logout() { await signOut(auth); }
+			async function login() {
+				await signInWithPopup(auth, new GoogleAuthProvider());
+			}
+			async function logout() {
+				await signOut(auth);
+			}
 
 			return {
 				shops,

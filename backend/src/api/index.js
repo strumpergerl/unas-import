@@ -351,11 +351,11 @@ router.post('/config', async (req, res) => {
 		const ref = docId ? col.doc(docId) : col.doc();
 
 		// minimál ellenőrzés
-		if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
-			return res.status(400).json({
-				error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")',
-			});
-		}
+		// if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
+		// 	return res.status(400).json({
+		// 		error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")',
+		// 	});
+		// }
 
 		const nowIso = new Date().toISOString();
 

@@ -185,7 +185,7 @@
 						priceMargin: 0,
 						discount: 0,
 						rounding: 100,
-						fieldMapping: {},
+						fieldMapping: {}
 					};
 				}
 				showForm.value = true;

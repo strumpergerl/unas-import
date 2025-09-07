@@ -56,9 +56,9 @@ async function updateRates(retry = true) {
 // indításkor azonnal
 updateRates();
 
-// 6 óránként frissítjük az árfolyamokat
+// 1 óránként frissítjük az árfolyamokat
 cron.schedule(
-	'0 */6 * * *',
+	'0 */1 * * *',
 	() => {
 		console.log('[rateUpdater] Árfolyam frissítés ütemezve');
 		updateRates();

@@ -1,4 +1,5 @@
 const { Inngest } = require("inngest");
+const { serve } = require('inngest/express');
 
 const inngest = new Inngest({
     id: "unas-import", // vagy appId, de id legyen!
@@ -6,4 +7,8 @@ const inngest = new Inngest({
     //eventKey: process.env.INNGEST_EVENT_KEY, // vagy közvetlenül az API kulcs
 });
 
-module.exports = inngest;
+const functions = [
+    
+];
+
+module.exports = serve({ client: inngest, functions });

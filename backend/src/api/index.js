@@ -127,8 +127,8 @@ router.get('/feed/headers', async (req, res) => {
 		const header =
 			Array.isArray(rows) && rows.length ? Object.keys(rows[0]) : [];
 
-		// 4) normalizált válasz a frontendnek
-		const fields = header
+		// 4) normalizált válasz a frontendnek 
+		const fields = (header || [])
 			.map((h) => ({ key: h, label: String(h).trim() }))
 			.filter((f) => f.label);
 		res.json({ count: fields.length, fields });

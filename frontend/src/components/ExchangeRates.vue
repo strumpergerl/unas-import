@@ -1,7 +1,7 @@
 <template>
   <div class="exchange-rates">
     <template v-if="Object.keys(rates).length">
-      <span v-for="(item, idx) in filteredRates" :key="item.cur">
+      <span v-for="(item) in filteredRates" :key="item.cur">
         1 {{ item.cur }} = {{ formatRate(item.rate) }} {{ baseCurrency }}
       </span>
     </template>

@@ -9,21 +9,6 @@ const inngest = new Inngest({
         //eventKey: process.env.INNGEST_EVENT_KEY, // vagy közvetlenül az API kulcs
 });
 
-// Inngest function: process futtatása event alapján
-const runProcessFunction = inngest.createFunction(
-    { id: "run-process" },
-    { event: "unas/process.run" },
-    async ({ event, step }) => {
-        const processId = event.data?.processId;
-        if (!processId) throw new Error("processId missing in event data");
-        await step.run("run-process", async () => {
-            await runProcessById(processId);
-        });
-        return { ok: true };
-    }
-);
-
-
 // Dinamikus scheduler: 5 percenként ellenőrzi az összes aktív process-t
 const dynamicSchedulerFunction = inngest.createFunction(
     { id: "dynamic-scheduler" },
@@ -87,7 +72,6 @@ const dailyPruneFunction = inngest.createFunction(
 );
 
 const functions = [
-    runProcessFunction,
     dynamicSchedulerFunction,
     dailyPruneFunction
 ];

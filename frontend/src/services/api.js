@@ -27,27 +27,48 @@ const hide = () => {
 };
 
 api.interceptors.request.use(async (config) => {
-  const user = auth.currentUser;
-  if (user) {
-    const token = await user.getIdToken();
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  activeRequests++;
-  show();
-  return config;
+	const user = auth.currentUser;
+	if (user) {
+		const token = await user.getIdToken();
+		config.headers.Authorization = `Bearer ${token}`;
+	}
+	// Csak akkor mutassuk a loadert, ha NEM Firestore Listen/Watch
+	const isFirestoreListen =
+		typeof config.url === 'string' &&
+		config.url.includes('firestore.googleapis.com') &&
+		(config.url.includes('/Listen') || config.url.includes('/Watch'));
+	if (!isFirestoreListen) {
+		activeRequests++;
+		show();
+	}
+	return config;
 });
+
 
 api.interceptors.response.use(
 	(resp) => {
-		activeRequests--;
-		if (activeRequests <= 0) activeRequests = 0;
-		hide();
+		// Csak akkor csökkentsük a számlálót, ha nem Firestore Listen/Watch
+		const isFirestoreListen =
+			typeof resp.config?.url === 'string' &&
+			resp.config.url.includes('firestore.googleapis.com') &&
+			(resp.config.url.includes('/Listen') || resp.config.url.includes('/Watch'));
+		if (!isFirestoreListen) {
+			activeRequests--;
+			if (activeRequests <= 0) activeRequests = 0;
+			hide();
+		}
 		return resp;
 	},
 	(err) => {
-		activeRequests--;
-		if (activeRequests <= 0) activeRequests = 0;
-		hide();
+		const isFirestoreListen =
+			typeof err.config?.url === 'string' &&
+			err.config.url.includes('firestore.googleapis.com') &&
+			(err.config.url.includes('/Listen') || err.config.url.includes('/Watch'));
+		if (!isFirestoreListen) {
+			activeRequests--;
+			if (activeRequests <= 0) activeRequests = 0;
+			hide();
+		}
 		return Promise.reject(err);
 	}
 );

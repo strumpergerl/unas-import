@@ -24,6 +24,11 @@
 						><Sunny
 					/></el-icon>
 				</h1>
+				<template v-if="user">
+						<el-button @click="logout" circle type="danger">
+							<el-icon><SwitchButton /></el-icon>
+						</el-button>
+					</template>
 			</div>
 		</el-header>
 		<template v-if="ready && user">
@@ -31,9 +36,6 @@
 			<el-main>
 				<ExchangeRates />
 				<div class="webshop-switcher-line">
-					<template v-if="user">
-						<el-button size="small" @click="logout">Kijelentkezés</el-button>
-					</template>
 					<ShopSelector v-model:shopId="selectedShop" :shops="shops" />
 				</div>
 				<ProcessTable

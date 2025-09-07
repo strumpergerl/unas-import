@@ -22,18 +22,18 @@
       <el-table-column
         width="100"
         prop="dryRun"
-        label="Élő mód"
+        label="Élő / Teszt"
+      :tags="true"
       >
-        <template #default="scope" >
-            <el-icon style="vertical-align: middle; margin-right: 4px;" size="25">
-              <template v-if="scope.row.dryRun">
-                <CircleCloseFilled style="color: #F56C6C;" />
-              </template>
-              <template v-else>
-                <CircleCheckFilled style="color: #67C23A;" />
-              </template>
-            </el-icon>
-            {{ scope.row.dryRun ? 'Teszt' : 'Élő' }}
+        <template #default="scope">
+          <el-tag
+            :type="scope.row.dryRun ? 'danger' : 'success'"
+            effect="dark"
+            size="large"
+            style="margin-right: 4px;"
+          >
+        {{ scope.row.dryRun ? 'Teszt' : 'Élő' }}
+          </el-tag>
         </template>
       </el-table-column>
       <!-- Műveletek oszlop run gombbal: explicit default slot -->

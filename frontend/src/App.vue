@@ -34,7 +34,7 @@
 		<template v-if="ready && user">
 			<!-- <router-view /> -->
 			<el-main>
-				<ExchangeRates />
+				   <ExchangeRates :user="user" />
 				<div class="webshop-switcher-line">
 					<el-button type="success" class="new-process-btn" @click="openForm()"
 						><el-icon style="vertical-align: middle; margin-right: 4px"

@@ -820,13 +820,16 @@
 
 <style>
 	.field-mapping > .el-form-item__label {
+		display: flex !important;
 		align-items: center;
 		justify-content: center;
+		text-align: center;
 		padding: 1rem;
 		font-weight: bold;
 		background: #cee4fc;
 		margin-bottom: 0 !important;
-		width: 100%;
+		width: 100% !important;
+		font-size: 1rem !important;
 	}
 	.field-mapping .el-form-item__content {
 		padding: 2rem;

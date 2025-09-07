@@ -10,25 +10,21 @@
 </template>
 
 <script>
-
+import { watch, onMounted, onBeforeUnmount } from 'vue';
 import api from '../services/api';
 
-
 export default {
-    name: 'ExchangeRates',    
+  name: 'ExchangeRates',
+  props: {
+    user: { type: Object, default: null },
+  },
   data() {
     return {
       rates: {},
       baseCurrency: 'HUF',
       refreshInterval: 60 * 60 * 1000, // 1 óra
+      timer: null,
     };
-  },
-  mounted() {
-    this.loadRates();
-    this.timer = setInterval(this.loadRates, this.refreshInterval);
-  },
-  beforeDestroy() {
-    clearInterval(this.timer);
   },
   computed: {
     filteredRates() {
@@ -39,20 +35,48 @@ export default {
   },
   methods: {
     async loadRates() {
-        try {
-            const response = await api.getRates();
-            this.rates = response.data.rates || {};
-            console.log('Árfolyamok betöltve:', this.rates);
-        } catch (error) {
-            console.error('Hiba az árfolyamok betöltésekor:', error);
-            if (this.$message && this.$message.error) {
-                this.$message.error('Nem sikerült betölteni az árfolyamokat.');
-            }
+      if (!this.user) return;
+      try {
+        const response = await api.getRates();
+        this.rates = response.data.rates || {};
+        console.log('Árfolyamok betöltve:', this.rates);
+      } catch (error) {
+        console.error('Hiba az árfolyamok betöltésekor:', error);
+        if (this.$message && this.$message.error) {
+          this.$message.error('Nem sikerült betölteni az árfolyamokat.');
         }
+      }
     },
     formatRate(r) {
       return typeof r === 'number' && !isNaN(r) ? r.toFixed(2) : '-';
     },
+  },
+  mounted() {
+    if (this.user) this.loadRates();
+    this.timer = setInterval(() => {
+      if (this.user) this.loadRates();
+    }, this.refreshInterval);
+    // Figyeljük a user változását is
+    this.unwatchUser = watch(
+      () => this.user,
+      (newUser, oldUser) => {
+        if (newUser && !oldUser) {
+          this.loadRates();
+        }
+        if (!newUser) {
+          this.rates = {};
+        }
+      }
+    );
+  },
+  beforeUnmount() {
+    clearInterval(this.timer);
+    if (this.unwatchUser) this.unwatchUser();
+  },
+  // Vue2 kompatibilitás miatt
+  beforeDestroy() {
+    clearInterval(this.timer);
+    if (this.unwatchUser) this.unwatchUser();
   },
 };
 </script>

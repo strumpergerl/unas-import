@@ -48,8 +48,10 @@ router.get('/health', (_req, res) => {
 
 // Auth middlewarek
 // Csak a routeren belüli route-okra vonatkozzon az auth middleware
+
+// Auth middleware csak azokhoz, amikhez kell
 router.use((req, res, next) => {
-	if (req.path.startsWith('/inngest')) return next();
+	if (req.path.startsWith('/inngest') || req.path.startsWith('/rates')) return next();
 	return allowCronOrUser(requireFirebaseUser)(req, res, next);
 });
 

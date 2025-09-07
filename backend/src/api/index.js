@@ -16,6 +16,9 @@ const {
 	requireFirebaseUser,
 	allowCronOrUser,
 } = require('../../middlewares/auth');
+const inngestHandler = require('../inngest');
+
+
 let uploadToUnas = null;
 
 const router = express.Router();
@@ -32,6 +35,11 @@ function safeJson(res, status, payload) {
 			.end('{"error":"Internal error"}');
 	}
 }
+
+router.use('/inngest', express.raw({ type: '*/*' }), (req, res, next) => {
+  // Inngest-nek továbbadjuk
+  return inngestHandler(req, res, next);
+});
 
 // Healthcheck
 router.get('/health', (_req, res) => {

@@ -14,7 +14,7 @@
 		<el-form-item label="Feed URL">
 			<el-input
 				v-model="form.feedUrl"
-				placeholder="Ide másold az XLSX / XML / CSV fájl url-jét"
+				placeholder="Ide másold az XLSX fájl url-jét"
 			/>
 		</el-form-item>
 

@@ -1,4 +1,4 @@
-// backend/src/middlewares/auth.js
+// backend/middlewares/auth.js
 const { admin } = require('../src/db/firestore');
 
 async function requireFirebaseUser(req, res, next) {

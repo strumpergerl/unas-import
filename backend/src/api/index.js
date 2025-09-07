@@ -9,13 +9,14 @@ const { loadShopById } = require('../services/shops');
 const downloadFile = require('../core/downloadFile');
 const parseData = require('../core/parseData');
 const transformData = require('../core/transformData');
-const uploadToUnas = require('../core/uploadToUnas');
+// const uploadToUnas = require('../core/uploadToUnas');
 const rateUpdater = require('../utils/rateUpdater');
 const { getLogs, addRun } = require('../runner');
 const {
 	requireFirebaseUser,
 	allowCronOrUser,
 } = require('../../middlewares/auth');
+let uploadToUnas = null;
 
 const router = express.Router();
 router.use(express.json());
@@ -147,6 +148,11 @@ router.get('/feed/headers', async (req, res) => {
 // --- FUTTATÁS INDÍTÁSA ---
 router.post('/run', async (req, res) => {
 	const startedAt = new Date();
+	let uploadResult = null;
+	if (!cfg.dryRun) {
+		if (!uploadToUnas) uploadToUnas = require('../core/uploadToUnas');
+		uploadResult = await uploadToUnas(transformed, cfg, shop);
+	}
 	const run = {
 		id: `manual_${startedAt.toISOString()}`,
 		processId: null,

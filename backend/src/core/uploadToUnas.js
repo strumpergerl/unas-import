@@ -23,8 +23,11 @@ const UNAS_PRODUCTDB_BACKOFF_MS =
 	Number(process.env.UNAS_PRODUCTDB_BACKOFF_MS) || 2000;
 const UNAS_INDEX_TTL_HOURS = Number(process.env.UNAS_INDEX_TTL_HOURS) || 12;
 
-const CACHE_DIR = path.join(process.cwd(), 'cache');
-if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+const CACHE_DIR = process.env.CACHE_DIR || path.join(os.tmpdir(), 'unas-cache');
+function ensureCacheDir() {
+	try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch (_) {}
+}
+ensureCacheDir();
 
 const parser = new xml2js.Parser({ explicitArray: false });
 const builder = new xml2js.Builder({ headless: true });

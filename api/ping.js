@@ -1,4 +1,4 @@
 // api/ping.js
-export default function handler(req, res) {
+exports.default = function handler(req, res) {
   res.status(200).json({ ok: true, path: req.url });
-}
+};

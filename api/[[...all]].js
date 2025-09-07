@@ -14,6 +14,12 @@ try {
     next();
   });
 
+
+  // Minimal health route for debug
+  app.get('/health', (req, res) => {
+    res.json({ ok: true, ts: Date.now() });
+  });
+
   // 2) Mount prefix nélkül — így a routered '/config', '/logs', stb. útvonalai illeszkednek
   app.use(apiRouter);
 

@@ -32,7 +32,7 @@ export default {
   },
   computed: {
     filteredRates() {
-      return Object.entries(this.rates)
+      return Object.entries(this.rates || {})
         .filter(([cur]) => cur !== this.baseCurrency)
         .map(([cur, rate]) => ({ cur, rate }));
     },

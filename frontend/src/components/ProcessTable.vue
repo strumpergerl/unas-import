@@ -91,7 +91,7 @@ export default {
 
     const filtered = computed(() => {
       const term = search.value.toLowerCase()
-      return props.processes.filter(p =>
+      return (props.processes || []).filter(p =>
         p.displayName.toLowerCase().includes(term) ||
         p.processId.toLowerCase().includes(term)
       )

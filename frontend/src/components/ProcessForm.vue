@@ -481,8 +481,8 @@
 			const groupedOptionsFiltered = computed(() => {
 				const q = normalize(filterQuery.value);
 				const list = q
-					? unasOptions.value.filter((o) => o._n.includes(q))
-					: unasOptions.value;
+					? (unasOptions.value || []).filter((o) => o._n.includes(q))
+					: (unasOptions.value || []);
 
 				const groups = new Map();
 				for (const opt of list) {
@@ -560,9 +560,9 @@
 				feedFilterQuery.value = query || '';
 				const q = normalize(feedFilterQuery.value);
 				if (!q) {
-					feedOptionsFiltered.value = feedOptions.value.slice(0, 200);
+					feedOptionsFiltered.value = (feedOptions.value || []).slice(0, 200);
 				} else {
-					feedOptionsFiltered.value = feedOptions.value
+					feedOptionsFiltered.value = (feedOptions.value || [])
 						.filter((o) => o._n.includes(q))
 						.slice(0, 200);
 				}

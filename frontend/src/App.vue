@@ -160,7 +160,7 @@
 			};
 
 			const filteredProcesses = computed(() =>
-				processes.value.filter((p) => p.shopId === selectedShop.value)
+				(processes.value || []).filter((p) => p.shopId === selectedShop.value)
 			);
 
 			const openForm = (processId = null) => {

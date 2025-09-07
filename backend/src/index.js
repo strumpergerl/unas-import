@@ -13,7 +13,7 @@ let rateUpdater = null;
 try {
   rateUpdater = require('./utils/rateUpdater');
 } catch (e) {
-  console.warn('[BACKEND] rateUpdater nem elérhető (utils/rateUpdater).');
+  console.warn('[BACKEND] rateUpdater nem elérhető (utils/rateUpdater).,', e?.message || e);
 }
 
 const app = express();

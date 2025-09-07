@@ -12,7 +12,10 @@ const transformData = require('../core/transformData');
 const uploadToUnas = require('../core/uploadToUnas');
 const rateUpdater = require('../utils/rateUpdater');
 const { getLogs, addRun } = require('../runner');
-const { requireFirebaseUser, allowCronOrUser } = require('../../middlewares/auth');
+const {
+	requireFirebaseUser,
+	allowCronOrUser,
+} = require('../../middlewares/auth');
 
 const router = express.Router();
 router.use(express.json());
@@ -29,11 +32,10 @@ function safeJson(res, status, payload) {
 	}
 }
 
-// Healthcheck 
+// Healthcheck
 router.get('/health', (_req, res) => {
 	safeJson(res, 200, { ok: true, time: new Date().toISOString() });
 });
-
 
 // Auth middlewarek
 // Csak a routeren belüli route-okra vonatkozzon az auth middleware
@@ -41,7 +43,6 @@ router.use((req, res, next) => {
 	if (req.path.startsWith('/inngest')) return next();
 	return allowCronOrUser(requireFirebaseUser)(req, res, next);
 });
-
 
 /** UNAS ProductDB mezőlista adott shopDocId szerint */
 router.get('/unas/fields', async (req, res) => {
@@ -127,7 +128,7 @@ router.get('/feed/headers', async (req, res) => {
 		const header =
 			Array.isArray(rows) && rows.length ? Object.keys(rows[0]) : [];
 
-		// 4) normalizált válasz a frontendnek 
+		// 4) normalizált válasz a frontendnek
 		const fields = (header || [])
 			.map((h) => ({ key: h, label: String(h).trim() }))
 			.filter((f) => f.label);
@@ -258,11 +259,11 @@ router.post('/run', async (req, res) => {
 			run.counts.failed = uploadResult?.failed?.length || 0;
 
 			for (const m of uploadResult?.modified || []) {
-        const hasChange = m.changes && Object.keys(m.changes).length > 0;
+				const hasChange = m.changes && Object.keys(m.changes).length > 0;
 				run.items.push({
 					key: m.key ?? null,
 					sku: m.sku ?? null,
-          unasKey: m.unasKey ?? null, 
+					unasKey: m.unasKey ?? null,
 					action: hasChange ? 'modify' : 'skip',
 					changes: m.changes || {},
 					before: m.before ?? null,
@@ -273,7 +274,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: s.key ?? null,
 					sku: null,
-		      unasKey: m.unasKey ?? null, 
+					unasKey: s.unasKey ?? null,
 					action: 'skip',
 					changes: {},
 					before: null,
@@ -285,7 +286,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: s.key ?? null,
 					sku: null,
-          unasKey: m.unasKey ?? null, 
+					unasKey: s.unasKey ?? null,
 					action: 'skip',
 					changes: {},
 					before: null,
@@ -297,7 +298,7 @@ router.post('/run', async (req, res) => {
 				run.items.push({
 					key: f.key ?? null,
 					sku: f.sku ?? null,
-          unasKey: m.unasKey ?? null, 
+					unasKey: f.unasKey ?? null,
 					action: 'fail',
 					changes: {},
 					before: null,
@@ -347,11 +348,9 @@ router.post('/config', async (req, res) => {
 
 		// minimál ellenőrzés
 		if (!p.frequency || !/^\d+\s*[smhd]$/i.test(String(p.frequency))) {
-			return res
-				.status(400)
-				.json({
-					error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")',
-				});
+			return res.status(400).json({
+				error: 'Érvénytelen vagy hiányzó frequency (pl. "30m", "3h", "1d")',
+			});
 		}
 
 		const nowIso = new Date().toISOString();

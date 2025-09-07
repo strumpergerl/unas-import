@@ -34,8 +34,14 @@ router.get('/health', (_req, res) => {
 	safeJson(res, 200, { ok: true, time: new Date().toISOString() });
 });
 
+
 // Auth middlewarek
-router.use(allowCronOrUser(requireFirebaseUser)); // minden további endpoint auth-olt
+// Csak a routeren belüli route-okra vonatkozzon az auth middleware
+router.use((req, res, next) => {
+	if (req.path.startsWith('/inngest')) return next();
+	return allowCronOrUser(requireFirebaseUser)(req, res, next);
+});
+
 
 /** UNAS ProductDB mezőlista adott shopDocId szerint */
 router.get('/unas/fields', async (req, res) => {

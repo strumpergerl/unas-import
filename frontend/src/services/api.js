@@ -4,7 +4,8 @@ import { auth } from '../firestore';
 import { ElLoading } from 'element-plus';
 
 const base = import.meta.env.VITE_API_BASE_URL || '/api';
-const api = axios.create({
+
+export const api = axios.create({
 	baseURL: base,
 	headers: { 'Content-Type': 'application/json' },
 });
@@ -50,6 +51,8 @@ api.interceptors.response.use(
 		return Promise.reject(err);
 	}
 );
+
+
 
 export default {
 	getConfig: () => api.get('/config'),

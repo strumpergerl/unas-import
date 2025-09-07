@@ -92,18 +92,11 @@ onBeforeUnmount(stopFs);
 </script>
 
 <template>
-	<div class="p-4">
-		<div class="flex items-center justify-between mb-3">
+	<div class="p-4" style="margin-top: 5rem;">
+		<el-divider content-position="center">Folyamat logok</el-divider>
+		<!-- <div class="flex items-center justify-between mb-3">
 			<h2 class="text-xl font-semibold">Folyamat logok</h2>
-			<el-button
-				:loading="loading"
-				@click="load"
-				type="primary"
-				plain
-				icon="Refresh"
-				>Frissítés</el-button
-			>
-		</div>
+		</div> -->
 
 		<el-table
 			:data="pagedRows"

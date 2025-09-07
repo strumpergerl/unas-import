@@ -4,7 +4,7 @@ const cron = require('node-cron'); // csak a napi prune-hoz
 const { db } = require('./db/firestore');
 const { runProcessById, pruneOldRuns } = require('./runner');
 const inngest = require("./inngest");
-const { allowCronOrUser, requireFirebaseUser } = require('./middlewares/auth');
+const { allowCronOrUser, requireFirebaseUser } = require('../middlewares/auth');
 const express = require('express');
 const { InngestExpress } = require('inngest/express');
 

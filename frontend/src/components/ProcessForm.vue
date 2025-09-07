@@ -308,6 +308,7 @@
 		watch,
 		onMounted,
 	} from 'vue';
+	import { api } from '../services/api';
 
 	export default {
 		name: 'ProcessForm',
@@ -409,73 +410,52 @@
 				return 'Egyéb';
 			}
 
-			async function loadUnasFields(shopId) {
-				if (!shopId) {
-					unasOptions.value = [];
-					return;
-				}
-				try {
-					unasFieldsLoading.value = true;
-					const resp = await fetch(
-						`/api/unas/fields?shopId=${encodeURIComponent(shopId)}`
-					);
-					const ct = resp.headers.get('content-type') || '';
-					const bodyText = !ct.includes('application/json')
-						? await resp.text().catch(() => '')
-						: null;
-					if (!resp.ok)
-						throw new Error(
-							`HTTP ${resp.status} – ${
-								bodyText ? bodyText.slice(0, 200) : 'Hiba'
-							}`
-						);
-					if (!ct.includes('application/json'))
-						throw new Error(
-							`Nem JSON válasz (Content-Type: ${ct}). Részlet: ${bodyText?.slice(
-								0,
-								200
-							)}`
-						);
+					async function loadUnasFields(shopId) {
+						if (!shopId) {
+							unasOptions.value = [];
+							return;
+						}
+						try {
+							unasFieldsLoading.value = true;
+							const resp = await api.get(`/unas/fields?shopId=${encodeURIComponent(shopId)}`);
+							const json = resp.data;
+							// 1) listába szedjük (stringek)
+							let list = Array.isArray(json?.fields)
+								? json.fields
+										.map((f) =>
+											typeof f === 'string' ? f : f.label ?? f.key ?? ''
+										)
+										.filter(Boolean)
+								: [];
 
-					const json = await resp.json();
+							// 2) Fallback: ha egyben idézőzött CSV-sor jön, vágjuk el itt
+							if (list.length === 1 && /",".+","/.test(list[0])) {
+								const headerLine = list[0];
+								list = headerLine
+									.replace(/^\s*"/, '')
+									.replace(/"\s*$/, '')
+									.split(/"\s*,\s*"/)
+									.map((s) => s.trim())
+									.filter(Boolean);
+							}
 
-					// 1) listába szedjük (stringek)
-					let list = Array.isArray(json?.fields)
-						? json.fields
-								.map((f) =>
-									typeof f === 'string' ? f : f.label ?? f.key ?? ''
-								)
-								.filter(Boolean)
-						: [];
-
-					// 2) Fallback: ha egyben idézőzött CSV-sor jön, vágjuk el itt
-					if (list.length === 1 && /",".+","/.test(list[0])) {
-						const headerLine = list[0];
-						list = headerLine
-							.replace(/^\s*"/, '')
-							.replace(/"\s*$/, '')
-							.split(/"\s*,\s*"/)
-							.map((s) => s.trim())
-							.filter(Boolean);
+							// 3) Opciók + csoport címkézés
+							unasOptions.value = list.map((label) => {
+								const s = String(label ?? '').trim();
+								return {
+									label: s,
+									value: s,
+									group: detectGroup(s),
+									_n: normalize(s),
+								};
+							});
+						} catch (e) {
+							console.error('UNAS mezők betöltése sikertelen:', e);
+							unasOptions.value = [];
+						} finally {
+							unasFieldsLoading.value = false;
+						}
 					}
-
-					// 3) Opciók + csoport címkézés
-					unasOptions.value = list.map((label) => {
-						const s = String(label ?? '').trim();
-						return {
-							label: s,
-							value: s,
-							group: detectGroup(s),
-							_n: normalize(s),
-						};
-					});
-				} catch (e) {
-					console.error('UNAS mezők betöltése sikertelen:', e);
-					unasOptions.value = [];
-				} finally {
-					unasFieldsLoading.value = false;
-				}
-			}
 
 			// Csoportosított opciók (mindig újrarajzolja)
 			const groupedOptions = computed(() => {
@@ -543,57 +523,37 @@
 					.replace(/[\u0300-\u036f]/g, '');
 			}
 
-			async function loadFeedHeaders(url) {
-				if (!url) {
-					feedOptions.value = [];
-					feedOptionsFiltered.value = [];
-					return;
-				}
-				try {
-					feedFieldsLoading.value = true;
-					//const u = new URL(url); // hibát dob, ha érvénytelen
-					const resp = await fetch(
-						`/api/feed/headers?url=${encodeURIComponent(url)}`
-					);
-					const ct = resp.headers.get('content-type') || '';
-					const bodyText = !ct.includes('application/json')
-						? await resp.text().catch(() => '')
-						: null;
-					if (!resp.ok)
-						throw new Error(
-							`HTTP ${resp.status} – ${
-								bodyText ? bodyText.slice(0, 200) : 'Hiba'
-							}`
-						);
-					if (!ct.includes('application/json'))
-						throw new Error(
-							`Nem JSON válasz (Content-Type: ${ct}). Részlet: ${bodyText?.slice(
-								0,
-								200
-							)}`
-						);
-					const json = await resp.json();
-					const list = Array.isArray(json?.fields)
-						? json.fields
-								.map((f) =>
-									typeof f === 'string' ? f : f.label ?? f.key ?? ''
-								)
-								.filter(Boolean)
-						: [];
-					feedOptions.value = list.map((label) => {
-						const s = String(label).trim();
-						return { label: s, value: s, _n: normalize(s) };
-					});
-					// alap nézet: első 200 opció
-					feedOptionsFiltered.value = feedOptions.value.slice(0, 200);
-				} catch (e) {
-					console.error('Feed mezők betöltése sikertelen:', e);
-					feedOptions.value = [];
-					feedOptionsFiltered.value = [];
-				} finally {
-					feedFieldsLoading.value = false;
-				}
-			}
+					async function loadFeedHeaders(url) {
+						if (!url) {
+							feedOptions.value = [];
+							feedOptionsFiltered.value = [];
+							return;
+						}
+						try {
+							feedFieldsLoading.value = true;
+							const resp = await api.get(`/feed/headers?url=${encodeURIComponent(url)}`);
+							const json = resp.data;
+							const list = Array.isArray(json?.fields)
+								? json.fields
+										.map((f) =>
+											typeof f === 'string' ? f : f.label ?? f.key ?? ''
+										)
+										.filter(Boolean)
+								: [];
+							feedOptions.value = list.map((label) => {
+								const s = String(label).trim();
+								return { label: s, value: s, _n: normalize(s) };
+							});
+							// alap nézet: első 200 opció
+							feedOptionsFiltered.value = feedOptions.value.slice(0, 200);
+						} catch (e) {
+							console.error('Feed mezők betöltése sikertelen:', e);
+							feedOptions.value = [];
+							feedOptionsFiltered.value = [];
+						} finally {
+							feedFieldsLoading.value = false;
+						}
+					}
 
 			// select beépített kereső → csak állítsuk a query-t, szűrést mi végezzük
 			function onFeedFilter(query) {

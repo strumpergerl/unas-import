@@ -314,6 +314,7 @@
 		name: 'ProcessForm',
 		props: {
 			shops: { type: Array, required: true },
+			user: { type: Object, required: true },
 			initial: { type: Object, required: true },
 			activeShopId: { type: String, required: true, default: '' },
 		},
@@ -497,18 +498,21 @@
 			});
 
 			// Modal megnyitáskor / shop váltáskor töltünk. NINCS megosztott filtered state.
-			watch(
-				safeShopId,
-				(sid) => {
-					if (sid) loadUnasFields(sid);
-					else unasOptions.value = [];
-				},
-				{ immediate: true }
-			);
+				// Csak akkor töltsön UNAS mezőket, ha van user és shopId is
+				watch([
+				  () => props.user,
+				  safeShopId
+				], ([user, shopId]) => {
+				  if (user && shopId) {
+				    loadUnasFields(shopId);
+				  } else {
+				    unasOptions.value = [];
+				  }
+				});
 
-			onMounted(() => {
-				if (form.shopId) loadUnasFields(form.shopId);
-			});
+				onMounted(() => {
+				  if (props.user && form.shopId) loadUnasFields(form.shopId);
+				});
 
 			// ---- FEED mezőlista (CSV / XLSX / XML) ----
 			const feedOptions = ref([]); // {label, value, _n}

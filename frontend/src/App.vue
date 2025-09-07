@@ -34,7 +34,7 @@
 		<template v-if="ready && user">
 			<!-- <router-view /> -->
 			<el-main>
-				   <ExchangeRates :user="user" />
+				<ExchangeRates :user="user" />
 				<div class="webshop-switcher-line">
 					<el-button type="success" class="new-process-btn" @click="openForm()"
 						><el-icon style="vertical-align: middle; margin-right: 4px"
@@ -77,6 +77,7 @@
 					<ProcessForm
 						:key="editedProcess.processId || 'new'"
 						:shops="shops"
+						:user="user"
 						:initial="editedProcess"
 						:activeShopId="selectedShop || ''"
 						@save="saveProcess"

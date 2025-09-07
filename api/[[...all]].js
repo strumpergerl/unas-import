@@ -7,6 +7,7 @@ const app = express();
 
 // 1) Ha a kérés '/api/...' prefixszel jön, szedjük le:
 app.use((req, _res, next) => {
+  console.log('[[...all]] request:', req.method, req.url);
   if (req.url.startsWith('/api/')) req.url = req.url.slice(4); // '/api' levágása
   next();
 });

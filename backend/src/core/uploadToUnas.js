@@ -2,6 +2,7 @@
 require('../bootstrapEnv');
 const fs = require('fs');
 const path = require('path');
+const os = require('os'); 
 const axios = require('axios');
 const xml2js = require('xml2js');
 const http = require('http');
@@ -27,7 +28,6 @@ const CACHE_DIR = process.env.CACHE_DIR || path.join(os.tmpdir(), 'unas-cache');
 function ensureCacheDir() {
 	try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch (_) {}
 }
-ensureCacheDir();
 
 const parser = new xml2js.Parser({ explicitArray: false });
 const builder = new xml2js.Builder({ headless: true });
@@ -303,6 +303,7 @@ function diffFields(before, after) {
    ============================ */
 async function uploadToUnas(records, processConfig, shopConfig) {
 	console.log('[DEBUG] Első rekord kulcsai:', Object.keys(records[0] || {}));
+	ensureCacheDir();
 	const { dryRun = false, shopId, keyFields } = processConfig;
 	const shop = shopConfig || (shopId ? await loadShopById(shopId) : null);
 	if (!shop) throw new Error(`[SHOP] Ismeretlen shopId: ${shopId}`);

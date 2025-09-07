@@ -148,11 +148,6 @@ router.get('/feed/headers', async (req, res) => {
 // --- FUTTATÁS INDÍTÁSA ---
 router.post('/run', async (req, res) => {
 	const startedAt = new Date();
-	let uploadResult = null;
-	if (!cfg.dryRun) {
-		if (!uploadToUnas) uploadToUnas = require('../core/uploadToUnas');
-		uploadResult = await uploadToUnas(transformed, cfg, shop);
-	}
 	const run = {
 		id: `manual_${startedAt.toISOString()}`,
 		processId: null,
@@ -253,7 +248,10 @@ router.post('/run', async (req, res) => {
 		// Feltöltés
 		const t6 = Date.now();
 		let uploadResult = null;
-		if (!cfg.dryRun) uploadResult = await uploadToUnas(transformed, cfg, shop);
+		if (!cfg.dryRun) {
+			if (!uploadToUnas) uploadToUnas = require('../core/uploadToUnas');
+			uploadResult = await uploadToUnas(transformed, cfg, shop);
+		}
 		const t7 = Date.now();
 		run.stages.uploadMs = t7 - t6;
 

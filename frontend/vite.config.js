@@ -19,7 +19,7 @@ export default defineConfig({
       },
     },
   },
-  base: '/',
+  base: './',
   build: {
     outDir: 'dist',
     // outDir: isCI ? 'dist' : resolve(__dirname, '../backend/public'),

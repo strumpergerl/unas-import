@@ -1,4 +1,5 @@
 // api/[[...all]].js
+console.log('[[...all]] handler loaded');
 const serverless = require('serverless-http');
 const express = require('express');
 const apiRouter = require('../backend/src/api');

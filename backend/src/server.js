@@ -26,8 +26,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(staticPath, 'index.html')));
 
 app.listen(PORT, () => console.log(`Server fut a ${PORT}-on`));
 
-// Egészségügyi ellenőrzés
-app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
+// Globális hibafigyelés
 process.on('unhandledRejection', (reason, p) => {
   console.error('[UNHANDLED REJECTION]', reason);
 });

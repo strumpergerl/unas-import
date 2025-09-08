@@ -80,6 +80,7 @@
 						:user="user"
 						:initial="editedProcess"
 						:activeShopId="selectedShop || ''"
+						:show="showForm"
 						@save="saveProcess"
 					/>
 				</el-dialog>

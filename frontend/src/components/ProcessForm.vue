@@ -306,7 +306,7 @@
 		computed,
 		nextTick,
 		watch,
-		onMounted,
+		onMounted
 	} from 'vue';
 	import { api } from '../services/api';
 
@@ -497,21 +497,23 @@
 				);
 			});
 
-			// Modal megnyitáskor / shop váltáskor töltünk. NINCS megosztott filtered state.
-				// Csak akkor töltsön UNAS mezőket, ha van user és shopId is
+				// Modal megnyitásakor töltünk csak, ha van user és shopId
+
+				const showRef = toRef(props, 'show');
 				watch([
+				  showRef,
 				  () => props.user,
 				  safeShopId
-				], ([user, shopId]) => {
-				  if (user && shopId) {
+				], ([show, user, shopId]) => {
+				  if (show && user && shopId) {
 				    loadUnasFields(shopId);
-				  } else {
+				  } else if (!show) {
 				    unasOptions.value = [];
 				  }
 				});
 
 				onMounted(() => {
-				  if (props.user && form.shopId) loadUnasFields(form.shopId);
+				  if (props.show && props.user && form.shopId) loadUnasFields(form.shopId);
 				});
 
 			// ---- FEED mezőlista (CSV / XLSX / XML) ----

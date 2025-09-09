@@ -76,15 +76,17 @@ api.interceptors.response.use(
 
 
 export default {
-	getConfig: () => api.get('/config'),
-	saveConfig: (data) => api.post('/config', data),
-	deleteConfig: (id) => api.delete(`/config/${id}`),
-	runProcess: (id, records) =>
-		api.post('/run', {
-			processId: id,
-			records,
-		}),
-	runProcessById: (id) => api.post('/run', { processId: id }),
-	getLogs: () => api.get('/logs'),
-	getRates: () => api.get('/rates'),
+       getConfig: () => api.get('/config'),
+       saveConfig: (data) => api.post('/config', data),
+       deleteConfig: (id) => api.delete(`/config/${id}`),
+       runProcess: (id, records) =>
+	       api.post('/run', {
+		       processId: id,
+		       records,
+	       }),
+       runProcessById: (id) => api.post('/run', { processId: id }),
+       getLogs: () => api.get('/logs'),
+       getRates: () => api.get('/rates'),
+       getFeedHeaders: (url) => api.get('/feed/headers', { params: { url } }),
+       getUnasFields: (shopId) => api.get(`/unas/fields?shopId=${encodeURIComponent(shopId)}`),
 };

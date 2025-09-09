@@ -11,8 +11,6 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Csatold az API routert
 app.use(apiRouter);
 
-// Vercel handler (nincs app.listen!)
 module.exports = (req, res) => app(req, res);

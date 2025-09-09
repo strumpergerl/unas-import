@@ -322,7 +322,7 @@
 		watch,
 		onMounted,
 	} from 'vue';
-	import { api } from '../services/api';
+	import api from '../services/api';
 
 	export default {
 		name: 'ProcessForm',
@@ -432,9 +432,7 @@
 				}
 				try {
 					unasFieldsLoading.value = true;
-					const resp = await api.get(
-						`/unas/fields?shopId=${encodeURIComponent(shopId)}`
-					);
+					const resp = await api.getUnasFields(shopId);
 					const json = resp.data;
 					// 1) listába szedjük (stringek)
 					let list = Array.isArray(json?.fields)
@@ -445,7 +443,7 @@
 								.filter(Boolean)
 						: [];
 
-					// 2) Fallback: ha egyben idézőzött CSV-sor jön, vágjuk el itt
+					// 2) Fallback: ha egyben CSV-sor jön, vágjuk el itt
 					if (list.length === 1 && /",".+","/.test(list[0])) {
 						const headerLine = list[0];
 						list = headerLine
@@ -550,9 +548,7 @@
 				}
 				try {
 					feedFieldsLoading.value = true;
-					const resp = await api.get(
-						`/feed/headers?url=${encodeURIComponent(url)}`
-					);
+					const resp = await api.getFeedHeaders(url);
 					const json = resp.data;
 					const list = Array.isArray(json?.fields)
 						? json.fields

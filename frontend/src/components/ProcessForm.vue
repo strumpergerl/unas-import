@@ -326,12 +326,13 @@
 
 	export default {
 		name: 'ProcessForm',
-		props: {
-			shops: { type: Array, required: true },
-			user: { type: Object, required: true },
-			initial: { type: Object, required: true },
-			activeShopId: { type: String, required: true, default: '' },
-		},
+		   props: {
+			   show: { type: Boolean, required: false, default: false },
+			   shops: { type: Array, required: true },
+			   user: { type: Object, required: true },
+			   initial: { type: Object, required: true },
+			   activeShopId: { type: String, required: true, default: '' },
+		   },
 
 		setup(props, { emit }) {
 			const form = reactive({ vat: 27, stockThreshold: 1, ...props.initial });
@@ -341,6 +342,7 @@
 
 			// Aktív shop név
 			const activeShopIdRef = toRef(props, 'activeShopId'); // reaktív
+			const userRef = toRef(props, 'user');
 			const safeShopId = computed(() => String(activeShopIdRef.value || ''));
 
 			const activeShopName = computed(() => {
@@ -426,7 +428,8 @@
 			}
 
 			async function loadUnasFields(shopId) {
-				if (!shopId) {
+				console.log('user:', userRef.value);
+				if (!shopId || !userRef.value) {
 					unasOptions.value = [];
 					return;
 				}
@@ -434,6 +437,7 @@
 					unasFieldsLoading.value = true;
 					const resp = await api.getUnasFields(shopId);
 					const json = resp.data;
+					console.log('UNAS fields API response:', json);
 					// 1) listába szedjük (stringek)
 					let list = Array.isArray(json?.fields)
 						? json.fields
@@ -514,7 +518,8 @@
 			// Modal megnyitásakor töltünk csak, ha van user és shopId
 
 			const showRef = toRef(props, 'show');
-			watch([showRef, () => props.user, safeShopId], ([show, user, shopId]) => {
+			watch([showRef, userRef, safeShopId], ([show, user, shopId]) => {
+				console.log('watcher fired', { show, user, shopId });
 				if (show && user && shopId) {
 					loadUnasFields(shopId);
 				} else if (!show) {
@@ -523,7 +528,12 @@
 			});
 
 			onMounted(() => {
-				if (props.show && props.user && form.shopId)
+				console.log('onMounted', {
+					show: props.show,
+					user: userRef.value,
+					shopId: form.shopId,
+				});
+				if (props.show && userRef.value && form.shopId)
 					loadUnasFields(form.shopId);
 			});
 

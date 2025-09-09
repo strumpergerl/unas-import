@@ -3,7 +3,7 @@ import axios from 'axios';
 import { auth } from '../firestore';
 import { ElLoading } from 'element-plus';
 
-const base = import.meta.env.VITE_API_BASE_URL || '/api';
+const base = '/api';
 
 export const api = axios.create({
 	baseURL: base,

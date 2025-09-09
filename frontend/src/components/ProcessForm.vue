@@ -293,14 +293,14 @@
 		</div>
 
 		<div style="padding: 20px; background: #f5f5f5">
-			<el-form-item style="margin-top: 20px">
+			<!-- <el-form-item style="margin-top: 20px">
 				<el-switch
 					v-model="form.dryRun"
 					size="large"
 					active-text="Teszt mód"
 					inactive-text="Élő mód"
 				/>
-			</el-form-item>
+			</el-form-item> -->
 			<el-form-item style="margin-top: 20px">
 				<el-button type="primary" size="large" @click="submit"
 					>Mentés</el-button
@@ -339,6 +339,13 @@
 
 			// Kulcs mező (keyField) kezelése
 			const selectedKeyIndex = ref(0);
+			// Ha van keyFields, állítsuk be a selectedKeyIndex-et a megfelelő mezőre
+			function updateSelectedKeyIndex() {
+				if (form.keyFields && form.keyFields.feed) {
+					const idx = mappingKeys.findIndex(k => k === form.keyFields.feed);
+					if (idx !== -1) selectedKeyIndex.value = idx;
+				}
+			}
 
 			// Aktív shop név
 			const activeShopIdRef = toRef(props, 'activeShopId'); // reaktív
@@ -353,15 +360,34 @@
 			});
 
 			// ---- Mapping állapot (NINCS kötelező default) ----
-			const initialMappingObj = { ...(form.fieldMapping || {}) };
-			const mappingKeys = reactive(Object.keys(initialMappingObj));
-			const mappingValues = reactive(Object.values(initialMappingObj));
+			// Megőrizzük a kulcsok sorrendjét, ha van fieldMappingOrder az initial-ban
+			let initialMappingObj = { ...(form.fieldMapping || {}) };
+			let keyOrder = Array.isArray(props.initial.fieldMappingOrder)
+				? props.initial.fieldMappingOrder.filter(k => k in initialMappingObj)
+				: Object.keys(initialMappingObj);
+			const mappingKeys = reactive([...keyOrder]);
+			const mappingValues = reactive(mappingKeys.map(k => initialMappingObj[k]));
 
 			if (mappingKeys.length === 0) {
 				// induljon egy üres sorral, hogy a felhasználó tudjon kezdeni
 				mappingKeys.push('');
 				mappingValues.push('');
 			}
+		       // Ha a mappingKeys már megvan, próbáljuk beállítani a selectedKeyIndex-et
+		       updateSelectedKeyIndex();
+		       // Ha props.initial változik (pl. szerkesztéskor), frissítsük a mapping sorrendet és a selectedKeyIndex-et is
+		       watch(() => props.initial, () => {
+			       let newOrder = Array.isArray(props.initial.fieldMappingOrder)
+				       ? props.initial.fieldMappingOrder.filter(k => k in form.fieldMapping)
+				       : Object.keys(form.fieldMapping || {});
+			       mappingKeys.splice(0, mappingKeys.length, ...newOrder);
+			       mappingValues.splice(0, mappingValues.length, ...newOrder.map(k => form.fieldMapping[k]));
+			       updateSelectedKeyIndex();
+		       }, { deep: true });
+		       // Ha mappingKeys változik (pl. mező hozzáadás/törlés), mindig próbáljuk visszaállítani a selectedKeyIndex-et
+		       watch(mappingKeys, () => {
+			       updateSelectedKeyIndex();
+		       });
 
 			const dryRun = ref(form.dryRun || false);
 
@@ -686,21 +712,34 @@
 			}
 
 			// ---- Mapping kezelők ----
-			function addMapping() {
-				mappingKeys.push('');
-				mappingValues.push('');
-			}
-			function removeMapping(index) {
-				mappingKeys.splice(index, 1);
-				mappingValues.splice(index, 1);
-			}
+		       function addMapping() {
+			       mappingKeys.push('');
+			       mappingValues.push('');
+			       // Új mező hozzáadásakor ne változzon a selectedKeyIndex, csak ha nincs már kijelölve érvényes mező
+			       if (selectedKeyIndex.value >= mappingKeys.length - 1) {
+				       selectedKeyIndex.value = 0;
+			       }
+		       }
+		       function removeMapping(index) {
+			       mappingKeys.splice(index, 1);
+			       mappingValues.splice(index, 1);
+			       // Ha a törölt index volt a kijelölt, vagy utána, állítsuk vissza az első érvényesre
+			       if (selectedKeyIndex.value >= mappingKeys.length) {
+				       selectedKeyIndex.value = 0;
+			       }
+		       }
 			function submit() {
 				const fm = {};
+				const order = [];
 				mappingKeys.forEach((k, i) => {
 					const v = mappingValues[i];
-					if (k && v) fm[k] = v;
+					if (k && v) {
+						fm[k] = v;
+						order.push(k);
+					}
 				});
 				form.fieldMapping = fm;
+				   form.fieldMappingOrder = order;
 
 				// Kulcspár mentése
 				form.keyFields = {
@@ -712,61 +751,59 @@
 
 				form.shopId = safeShopId.value;
 
-				if (!form.processId) {
+				// Csak akkor generálunk új processId-t, ha még nincs (új process)
+				if (!form.processId || form.processId === '') {
 					form.processId = `${props.activeShopId}_${new Date()
 						.toISOString()
 						.replace(/T/, '_')
 						.replace(/:/g, '-')
 						.slice(0, 19)}`;
 				}
-				emit('save', { ...form });
+				// A processId-t mindig a Firestore doc id-jára kell állítani, hogy a listázás működjön
+				emit('save', { ...form, processId: form.processId });
 			}
 
-			return {
-				...toRefs(form),
-				form,
-				selectedKeyIndex,
-				mappingKeys,
-				mappingValues,
-				removeMapping,
-				addMapping,
-				submit,
-				dryRun,
-				activeShopName,
-				activeShopId: safeShopId,
-				dryRun,
-				activeShopName,
-				activeShopId: safeShopId,
+	       // fieldMappingOrder NINCS visszaadva külön, csak a form részeként
+	       return {
+		       form,
+		       selectedKeyIndex,
+		       mappingKeys,
+		       mappingValues,
+		       removeMapping,
+		       addMapping,
+		       submit,
+		       activeShopName,
+		       activeShopId: safeShopId,
 
-				// UNAS mezőlista
-				unasAllFields,
-				unasFieldsLoading,
-				unasOptions,
-				groupedOptions,
-				filterQuery,
-				groupedOptionsFiltered,
-				onSelectFilter,
-				feedOptions,
-				feedOptionsFiltered,
-				feedFieldsLoading,
-				onFeedFilter,
+		       // UNAS mezőlista
+		       unasAllFields,
+		       unasFieldsLoading,
+		       unasOptions,
+		       groupedOptions,
+		       filterQuery,
+		       groupedOptionsFiltered,
+		       onSelectFilter,
+		       feedOptions,
+		       feedOptionsFiltered,
+		       feedFieldsLoading,
+		       onFeedFilter,
 
-				// képlet UI
-				pricingTokens,
-				numberDraft,
-				used,
-				addToken,
-				removeToken,
-				clearFormula,
-				addNumberDraft,
-				isOperator,
-				displayToken,
-				pricingInputValue,
-				pricingPlaceholder,
-				pricingInputRef,
-				handleBackspace,
-				focusInput,
-			};
+		       // képlet UI
+		       pricingTokens,
+		       numberDraft,
+		       used,
+		       addToken,
+		       removeToken,
+		       clearFormula,
+		       addNumberDraft,
+		       isOperator,
+		       displayToken,
+		       pricingInputValue,
+		       pricingPlaceholder,
+		       pricingInputRef,
+		       handleBackspace,
+		       focusInput,
+	       };
 		},
 	};
 

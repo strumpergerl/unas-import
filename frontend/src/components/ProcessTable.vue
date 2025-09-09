@@ -19,23 +19,7 @@
         label="Szinkron folyamat neve"
         sortable
       />
-      <el-table-column
-        width="100"
-        prop="dryRun"
-        label="Élő / Teszt"
-      :tags="true"
-      >
-        <template #default="scope">
-          <el-tag
-            :type="scope.row.dryRun ? 'danger' : 'success'"
-            effect="dark"
-            size="large"
-            style="margin-right: 4px;"
-          >
-        {{ scope.row.dryRun ? 'Teszt' : 'Élő' }}
-          </el-tag>
-        </template>
-      </el-table-column>
+      
       <!-- Műveletek oszlop run gombbal: explicit default slot -->
       <el-table-column label="Műveletek" width="200">
         <template #default="scope">

@@ -204,7 +204,7 @@
 					processes.value.push(proc);
 				}
 
-				await api.saveConfig({ processes: processes.value });
+				await api.saveConfig(proc);
 
 				showForm.value = false;
 				loadConfig();

@@ -403,7 +403,13 @@ router.post('/config', async (req, res) => {
 		);
 
 		const saved = await ref.get();
-		res.json({ id: ref.id, ...saved.data() });
+		// Mindig legyen processId mező a válaszban (és a doksiban is)
+		const savedData = saved.data() || {};
+		if (!savedData.processId) {
+			await ref.set({ processId: ref.id }, { merge: true });
+			savedData.processId = ref.id;
+		}
+		res.json({ id: ref.id, processId: ref.id, ...savedData });
 	} catch (err) {
 		console.error('/config POST error:', err);
 		res.status(500).json({ error: err.message || 'Hiba' });

@@ -51,7 +51,10 @@
 
 		<!-- Raktárkészlet (küszöb) – az árképzés elé -->
 		<el-form-item label="Raktárkészlet (küszöb)">
-			<el-tooltip content="Csak azokat a termékeket importáljuk, amelyek raktárkészlete legalább ennyi." placement="top">
+			<el-tooltip
+				content="Csak azokat a termékeket importáljuk, amelyek raktárkészlete legalább ennyi."
+				placement="top"
+			>
 				<el-input-number
 					v-model="form.stockThreshold"
 					:min="0"
@@ -259,23 +262,34 @@
 								:value="opt.value"
 							/>
 						</el-option-group>
-					</el-select> 
+					</el-select>
 					<el-button type="danger" icon="Delete" @click="removeMapping(i)" />
 				</el-row>
 			</div>
-			<div style="display: flex; justify-content: center; margin-top: 1rem; width: 100%">
+			<div
+				style="
+					display: flex;
+					justify-content: center;
+					margin-top: 1rem;
+					width: 100%;
+				"
+			>
 				<el-button type="primary" text @click="addMapping">
-					<el-icon style="vertical-align: middle; margin-right: 4px;"><Plus /></el-icon>
+					<el-icon style="vertical-align: middle; margin-right: 4px"
+						><Plus
+					/></el-icon>
 					<strong>Új mezők hozzáadása</strong>
 				</el-button>
 			</div>
 		</el-form-item>
 
-		<div class="hint" style="margin-bottom: 1rem;">
-			<el-icon size="large" style="vertical-align: middle; margin-right: 4px;">
+		<div class="hint" style="margin-bottom: 1rem">
+			<el-icon size="large" style="vertical-align: middle; margin-right: 4px">
 				<InfoFilled />
 			</el-icon>
-			Itt tudod összerendelni a feed mezőit az UNAS mezőkkel. A <el-icon style="vertical-align: middle;"><Lock /></el-icon> gombbal jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
+			Itt tudod összerendelni a feed mezőit az UNAS mezőkkel. A
+			<el-icon style="vertical-align: middle"><Lock /></el-icon> gombbal
+			jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
 		</div>
 
 		<div style="padding: 20px; background: #f5f5f5">
@@ -306,7 +320,7 @@
 		computed,
 		nextTick,
 		watch,
-		onMounted
+		onMounted,
 	} from 'vue';
 	import { api } from '../services/api';
 
@@ -411,52 +425,54 @@
 				return 'Egyéb';
 			}
 
-					async function loadUnasFields(shopId) {
-						if (!shopId) {
-							unasOptions.value = [];
-							return;
-						}
-						try {
-							unasFieldsLoading.value = true;
-							const resp = await api.get(`/unas/fields?shopId=${encodeURIComponent(shopId)}`);
-							const json = resp.data;
-							// 1) listába szedjük (stringek)
-							let list = Array.isArray(json?.fields)
-								? json.fields
-										.map((f) =>
-											typeof f === 'string' ? f : f.label ?? f.key ?? ''
-										)
-										.filter(Boolean)
-								: [];
+			async function loadUnasFields(shopId) {
+				if (!shopId) {
+					unasOptions.value = [];
+					return;
+				}
+				try {
+					unasFieldsLoading.value = true;
+					const resp = await api.get(
+						`/unas/fields?shopId=${encodeURIComponent(shopId)}`
+					);
+					const json = resp.data;
+					// 1) listába szedjük (stringek)
+					let list = Array.isArray(json?.fields)
+						? json.fields
+								.map((f) =>
+									typeof f === 'string' ? f : f.label ?? f.key ?? ''
+								)
+								.filter(Boolean)
+						: [];
 
-							// 2) Fallback: ha egyben idézőzött CSV-sor jön, vágjuk el itt
-							if (list.length === 1 && /",".+","/.test(list[0])) {
-								const headerLine = list[0];
-								list = headerLine
-									.replace(/^\s*"/, '')
-									.replace(/"\s*$/, '')
-									.split(/"\s*,\s*"/)
-									.map((s) => s.trim())
-									.filter(Boolean);
-							}
-
-							// 3) Opciók + csoport címkézés
-							unasOptions.value = list.map((label) => {
-								const s = String(label ?? '').trim();
-								return {
-									label: s,
-									value: s,
-									group: detectGroup(s),
-									_n: normalize(s),
-								};
-							});
-						} catch (e) {
-							console.error('UNAS mezők betöltése sikertelen:', e);
-							unasOptions.value = [];
-						} finally {
-							unasFieldsLoading.value = false;
-						}
+					// 2) Fallback: ha egyben idézőzött CSV-sor jön, vágjuk el itt
+					if (list.length === 1 && /",".+","/.test(list[0])) {
+						const headerLine = list[0];
+						list = headerLine
+							.replace(/^\s*"/, '')
+							.replace(/"\s*$/, '')
+							.split(/"\s*,\s*"/)
+							.map((s) => s.trim())
+							.filter(Boolean);
 					}
+
+					// 3) Opciók + csoport címkézés
+					unasOptions.value = list.map((label) => {
+						const s = String(label ?? '').trim();
+						return {
+							label: s,
+							value: s,
+							group: detectGroup(s),
+							_n: normalize(s),
+						};
+					});
+				} catch (e) {
+					console.error('UNAS mezők betöltése sikertelen:', e);
+					unasOptions.value = [];
+				} finally {
+					unasFieldsLoading.value = false;
+				}
+			}
 
 			// Csoportosított opciók (mindig újrarajzolja)
 			const groupedOptions = computed(() => {
@@ -483,7 +499,7 @@
 				const q = normalize(filterQuery.value);
 				const list = q
 					? (unasOptions.value || []).filter((o) => o._n.includes(q))
-					: (unasOptions.value || []);
+					: unasOptions.value || [];
 
 				const groups = new Map();
 				for (const opt of list) {
@@ -497,24 +513,21 @@
 				);
 			});
 
-				// Modal megnyitásakor töltünk csak, ha van user és shopId
+			// Modal megnyitásakor töltünk csak, ha van user és shopId
 
-				const showRef = toRef(props, 'show');
-				watch([
-				  showRef,
-				  () => props.user,
-				  safeShopId
-				], ([show, user, shopId]) => {
-				  if (show && user && shopId) {
-				    loadUnasFields(shopId);
-				  } else if (!show) {
-				    unasOptions.value = [];
-				  }
-				});
+			const showRef = toRef(props, 'show');
+			watch([showRef, () => props.user, safeShopId], ([show, user, shopId]) => {
+				if (show && user && shopId) {
+					loadUnasFields(shopId);
+				} else if (!show) {
+					unasOptions.value = [];
+				}
+			});
 
-				onMounted(() => {
-				  if (props.show && props.user && form.shopId) loadUnasFields(form.shopId);
-				});
+			onMounted(() => {
+				if (props.show && props.user && form.shopId)
+					loadUnasFields(form.shopId);
+			});
 
 			// ---- FEED mezőlista (CSV / XLSX / XML) ----
 			const feedOptions = ref([]); // {label, value, _n}
@@ -529,37 +542,39 @@
 					.replace(/[\u0300-\u036f]/g, '');
 			}
 
-					async function loadFeedHeaders(url) {
-						if (!url) {
-							feedOptions.value = [];
-							feedOptionsFiltered.value = [];
-							return;
-						}
-						try {
-							feedFieldsLoading.value = true;
-							const resp = await api.get(`/feed/headers?url=${encodeURIComponent(url)}`);
-							const json = resp.data;
-							const list = Array.isArray(json?.fields)
-								? json.fields
-										.map((f) =>
-											typeof f === 'string' ? f : f.label ?? f.key ?? ''
-										)
-										.filter(Boolean)
-								: [];
-							feedOptions.value = list.map((label) => {
-								const s = String(label).trim();
-								return { label: s, value: s, _n: normalize(s) };
-							});
-							// alap nézet: első 200 opció
-							feedOptionsFiltered.value = feedOptions.value.slice(0, 200);
-						} catch (e) {
-							console.error('Feed mezők betöltése sikertelen:', e);
-							feedOptions.value = [];
-							feedOptionsFiltered.value = [];
-						} finally {
-							feedFieldsLoading.value = false;
-						}
-					}
+			async function loadFeedHeaders(url) {
+				if (!url) {
+					feedOptions.value = [];
+					feedOptionsFiltered.value = [];
+					return;
+				}
+				try {
+					feedFieldsLoading.value = true;
+					const resp = await api.get(
+						`/feed/headers?url=${encodeURIComponent(url)}`
+					);
+					const json = resp.data;
+					const list = Array.isArray(json?.fields)
+						? json.fields
+								.map((f) =>
+									typeof f === 'string' ? f : f.label ?? f.key ?? ''
+								)
+								.filter(Boolean)
+						: [];
+					feedOptions.value = list.map((label) => {
+						const s = String(label).trim();
+						return { label: s, value: s, _n: normalize(s) };
+					});
+					// alap nézet: első 200 opció
+					feedOptionsFiltered.value = feedOptions.value.slice(0, 200);
+				} catch (e) {
+					console.error('Feed mezők betöltése sikertelen:', e);
+					feedOptions.value = [];
+					feedOptionsFiltered.value = [];
+				} finally {
+					feedFieldsLoading.value = false;
+				}
+			}
 
 			// select beépített kereső → csak állítsuk a query-t, szűrést mi végezzük
 			function onFeedFilter(query) {
@@ -577,10 +592,11 @@
 			const feedUrlRef = toRef(form, 'feedUrl');
 			let feedDebounceTimer = null;
 			watch(
-				feedUrlRef,
-				(u) => {
+				[feedUrlRef, () => props.user],
+				([url, user]) => {
+					if (!user) return;
 					clearTimeout(feedDebounceTimer);
-					feedDebounceTimer = setTimeout(() => loadFeedHeaders(u), 500);
+					feedDebounceTimer = setTimeout(() => loadFeedHeaders(url), 500);
 				},
 				{ immediate: true }
 			);
@@ -676,7 +692,7 @@
 				const fm = {};
 				mappingKeys.forEach((k, i) => {
 					const v = mappingValues[i];
-					if (k && v) fm[k] = v; 
+					if (k && v) fm[k] = v;
 				});
 				form.fieldMapping = fm;
 
@@ -815,12 +831,12 @@
 		gap: 6px;
 		flex-wrap: wrap;
 	}
-	.hint{
+	.hint {
 		background-color: var(--el-color-warning-light-8);
 		border: 2px dashed var(--el-color-warning-light-3);
-		padding: .5rem;
+		padding: 0.5rem;
 		margin-top: 1rem;
-		font-size: .75rem;
+		font-size: 0.75rem;
 	}
 </style>
 
@@ -844,7 +860,7 @@
 	.field-mapping .mapping-row {
 		width: 100%;
 	}
-	.field-mapping .mapping-row .el-row{
+	.field-mapping .mapping-row .el-row {
 		display: flex;
 		gap: 1rem;
 		justify-content: space-between;

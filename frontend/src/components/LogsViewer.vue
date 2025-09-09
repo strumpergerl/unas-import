@@ -1,6 +1,14 @@
 <!-- frontend/src/components/LogsViewer.vue -->
 <script setup>
 	import { onMounted, ref, onBeforeUnmount, computed } from 'vue';
+
+// --- Segéd: csak valódi változások (to !== null/undefined) ---
+function filteredChanges(changes) {
+       if (!changes) return [];
+       return Object.entries(changes)
+	       .filter(([_, chg]) => chg && chg.to !== null && chg.to !== undefined)
+	       .map(([name, chg]) => ({ name, from: chg.from, to: chg.to }));
+}
 	import api from '../services/api';
 	import { auth, db } from '../firestore';
 	import { onAuthStateChanged } from 'firebase/auth';
@@ -154,25 +162,19 @@
 										class="space-y-1"
 									>
 										<div
-											v-for="(chg, name) in it.changes"
-											:key="name"
+											v-for="chg in filteredChanges(it.changes)"
+											:key="chg.name"
 											class="text-xs"
 										>
-											<strong>{{ name }}:</strong>
-											<span
-												style="text-decoration: line-through; margin-left: 4px"
-											>
-												<span>
-													<span
-														v-if="chg.from !== null && chg.from !== undefined"
-														>{{ chg.from }}</span
-													>
-													<span v-else style="color: #aaa">–</span>
-													<span style="margin: 0 2px">→</span>
+											<strong>{{ chg.name }}:</strong>
+											<span style="margin-left: 4px">
+												<span style="text-decoration: line-through; color: #888">
+													{{ chg.from !== null && chg.from !== undefined ? chg.from : '–' }}
 												</span>
-												<span style="color: #222; font-weight: bold">{{
-													chg.to
-												}}</span>
+												<span style="margin: 0 2px">→</span>
+												<span style="color: #222; font-weight: bold">
+													{{ chg.to }}
+												</span>
 											</span>
 										</div>
 									</div>

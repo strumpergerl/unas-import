@@ -12,6 +12,7 @@ const { getBearerToken } = require('../services/unas');
 const { loadShopById } = require('../services/shops');
 const { parse: csvParse } = require('csv-parse/sync');
 const { db } = require('../db/firestore');
+const { convertCurrency } = require('../utils/currencyConverter');
 
 // --- Beállítások ENV-ből (biztonságos defaultokkal)
 const BASE_URL = process.env.UNAS_API_URL || 'https://api.unas.eu/shop';
@@ -60,51 +61,80 @@ function pickFeedKeyValueDynamic(rec, feedKey) {
 
 /** Nettó/Bruttó biztosítása a processConfig alapján */
 function ensureNetGross(item, processConfig) {
+	// --- DEBUG LOG: árforrások és deviza ---
+	console.log('[UNAS][DEBUG][ensureNetGross] input:', {
+		price: item.price,
+		price_net: item.price_net,
+		price_gross: item.price_gross,
+		currency: item.currency,
+		deviza: item.deviza
+	});
 	const vatPct = Number(processConfig?.vat ?? 0);
 	const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
-	const inNet = item.price_net != null ? Number(item.price_net) : null;
-	const inGross = item.price_gross != null ? Number(item.price_gross) : null;
-	const legacy = item.price != null ? Number(item.price) : null;
-
 	const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
 
-	let net = null,
-		gross = null;
-	if (
-		Number.isFinite(inNet) &&
-		inNet > 0 &&
-		Number.isFinite(inGross) &&
-		inGross > 0
-	) {
-		net = inNet;
-		gross = inGross;
-	} else if (Number.isFinite(inNet) && inNet > 0) {
-		net = inNet;
-		gross = inNet * vatFactor;
-	} else if (Number.isFinite(inGross) && inGross > 0) {
-		gross = inGross;
-		net = vatFactor > 0 ? inGross / vatFactor : inGross;
-	} else if (Number.isFinite(legacy) && legacy > 0) {
-		if (treatLegacyAsGross) {
-			gross = legacy;
-			net = vatFactor > 0 ? legacy / vatFactor : legacy;
-		} else {
-			net = legacy;
-			gross = legacy * vatFactor;
-		}
-	} else {
-		net = 0;
-		gross = 0;
+	// --- Árforrások ---
+	let inNet = item.price_net != null ? Number(item.price_net) : null;
+	let inGross = item.price_gross != null ? Number(item.price_gross) : null;
+	let legacy = item.price != null ? Number(item.price) : null;
+	let priceCurrency = (item.currency || item.deviza || '').toUpperCase() || 'HUF';
+	const targetCurrency = (processConfig?.targetCurrency || processConfig?.currency || 'HUF').toUpperCase();
+
+	// --- Ha nem HUF, először átváltjuk ---
+	async function convertIfNeeded(amount) {
+		if (!amount || priceCurrency === targetCurrency) return amount;
+		return await convertCurrency(amount, priceCurrency, targetCurrency);
 	}
 
-	net = Math.floor(Math.max(0, net));
-	gross = Math.floor(Math.max(0, gross));
-	return {
-		net,
-		gross,
-		currency: processConfig?.targetCurrency || processConfig?.currency || 'HUF',
-	};
+	async function compute() {
+		// Ár konverzió, ha szükséges
+		if (priceCurrency !== targetCurrency) {
+			if (inNet != null) inNet = await convertIfNeeded(inNet);
+			if (inGross != null) inGross = await convertIfNeeded(inGross);
+			if (legacy != null) legacy = await convertIfNeeded(legacy);
+			priceCurrency = targetCurrency;
+		}
+
+		let net = null, gross = null;
+		if (
+			Number.isFinite(inNet) &&
+			inNet > 0 &&
+			Number.isFinite(inGross) &&
+			inGross > 0
+		) {
+			net = inNet;
+			gross = inGross;
+		} else if (Number.isFinite(inNet) && inNet > 0) {
+			net = inNet;
+			gross = inNet * vatFactor;
+		} else if (Number.isFinite(inGross) && inGross > 0) {
+			gross = inGross;
+			net = vatFactor > 0 ? inGross / vatFactor : inGross;
+		} else if (Number.isFinite(legacy) && legacy > 0) {
+			if (treatLegacyAsGross) {
+				gross = legacy;
+				net = vatFactor > 0 ? legacy / vatFactor : legacy;
+			} else {
+				net = legacy;
+				gross = legacy * vatFactor;
+			}
+		} else {
+			net = 0;
+			gross = 0;
+		}
+
+		net = Math.floor(Math.max(0, net));
+		gross = Math.floor(Math.max(0, gross));
+		return {
+			net,
+			gross,
+			currency: targetCurrency,
+		};
+	}
+
+	// Mivel a hívó nem async, visszaadunk egy Promise-t, amit a hívó oldalon await-elni kell!
+	return compute();
 }
 
 // ---- UNAS XML POST ----
@@ -242,6 +272,20 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 
 // --- Segéd: UNAS termék lekérés SKU alapján (diff-hez) ---
 async function fetchProductBySku(bearer, sku) {
+	   // DEBUG: log all parameter names and values
+	//    try {
+	// 	   const paramsDbg = product?.Parameters?.Parameter;
+	// 	   if (paramsDbg) {
+	// 		   const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
+	// 		   console.log('[UNAS][DEBUG] Paraméterek:');
+	// 		   for (const p of arr) {
+	// 			   console.log('  Name:', p?.Name, 'Value:', p?.Value);
+	// 		   }
+	// 	   } else {
+	// 		   console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
+	// 	   }
+	// 	   console.log('[UNAS][DEBUG] Teljes product:', JSON.stringify(product, null, 2));
+	//    } catch (e) { console.log('[UNAS][DEBUG] param log error', e); }
 	const payload = builder.buildObject({
 		Params: { Sku: sku, ContentType: 'full', LimitNum: 1 },
 	});
@@ -267,13 +311,27 @@ async function fetchProductBySku(bearer, sku) {
 			priceArr[0] ||
 			{};
 
-		const before = {
-			name: String(product?.Name ?? ''),
-			stock: Number(firstStock?.Qty ?? 0) || 0,
-			price_net: Number(normalPrice?.Net ?? 0) || 0,
-			price_gross: Number(normalPrice?.Gross ?? 0) || 0
-		};
-		return { exists: true, product, before };
+		   // --- orderable mező kinyerése ---
+		   // UNAS API-ban pontosan: 'Vásárolható, ha nincs Raktáron'
+		   let orderable = null;
+		   if (Object.prototype.hasOwnProperty.call(product, 'Vásárolható, ha nincs Raktáron')) {
+			   orderable = product['Vásárolható, ha nincs Raktáron'];
+		   }
+		//    console.log('[UNAS][DEBUG] fetchProductBySku:', {
+		// 	   sku,
+		// 	   orderable,
+		// 	   productOrderable: product['Vásárolható, ha nincs Raktáron'],
+		// 	   productKeys: Object.keys(product),
+		// 	   product: JSON.stringify(product)
+		//    });
+		   const before = {
+			   name: String(product?.Name ?? ''),
+			   stock: Number(firstStock?.Qty ?? 0) || 0,
+			   price_net: Number(normalPrice?.Net ?? 0) || 0,
+			   price_gross: Number(normalPrice?.Gross ?? 0) || 0,
+			   orderable: orderable
+		   };
+		   return { exists: true, product, before };
 	} catch {
 		return { exists: false, product: null };
 	}
@@ -289,10 +347,17 @@ function diffFields(before, after) {
 		'orderable',
 	];
 	for (const f of fields) {
-		const b = before?.[f];
-		const a = after?.[f];
-		if ((b ?? null) !== (a ?? null)) {
-			changes[f] = { from: b ?? null, to: a ?? null };
+		let b = before?.[f];
+		let a = after?.[f];
+
+		// Always compare as strings for consistency (null/undefined become empty string)
+		const bStr = b === undefined || b === null ? '' : String(b);
+		const aStr = a === undefined || a === null ? '' : String(a);
+		if (bStr !== aStr) {
+			changes[f] = {
+				from: b === undefined ? null : b,
+				to: a === undefined ? null : a
+			};
 		}
 	}
 	return changes;
@@ -302,7 +367,7 @@ function diffFields(before, after) {
    Fő feltöltő folyamat
    ============================ */
 async function uploadToUnas(records, processConfig, shopConfig) {
-	console.log('[DEBUG] Első rekord kulcsai:', Object.keys(records[0] || {}));
+	// console.log('[DEBUG] Első rekord kulcsai:', Object.keys(records[0] || {}));
 	ensureCacheDir();
 	const { dryRun = false, shopId, keyFields } = processConfig;
 	const shop = shopConfig || (shopId ? await loadShopById(shopId) : null);
@@ -369,14 +434,60 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 		const unasSku = String(entry.sku).trim();
 
-		// Csak az árakat alakítjuk át
-		const { net, gross, currency } = ensureNetGross(rec, processConfig);
+
+		// --- Árképzés: csak a feed Price mezőjével számolunk, a config szerinti devizában ---
+		let priceValue = null;
+		let priceField = processConfig?.fieldMapping?.Price || 'Price';
+		if (rec[priceField] !== undefined) {
+			// Tisztítás: számot kinyerjük (pl. "19.99 EUR" vagy "19,99EUR")
+			const raw = String(rec[priceField]).replace(',', '.');
+			const match = raw.match(/([0-9.]+)/);
+			if (match) priceValue = parseFloat(match[1]);
+		}
+		// Ha nincs értelmes ár, ne írjuk át 0-ra, hanem logoljuk és hibaként kezeljük
+		if (!Number.isFinite(priceValue)) {
+			const msg = `[UNAS][ERROR] Érvénytelen ár a rekordban (sku: ${rec.sku || rec['Cikkszám'] || ''}, field: ${priceField}, value: ${rec[priceField]})`;
+			console.error(msg);
+			stats.failed.push({
+				key: feedKey,
+				sku: unasSku,
+				unasKey,
+				reason: 'Érvénytelen ár',
+				priceField,
+				priceValue: rec[priceField],
+				message: msg
+			});
+			continue;
+		}
+
+		// Deviza a configból
+		const currency = (processConfig?.currency || 'HUF').toUpperCase();
+
+		// Átváltás HUF-ra, ha kell
+		let priceHuf = priceValue;
+		if (currency !== 'HUF') {
+			priceHuf = await require('../utils/currencyConverter').convertCurrency(priceValue, currency, 'HUF');
+		}
+
+		// Árképzés (árrés, ÁFA, stb.)
+		const { net, gross } = await ensureNetGross({ price: priceHuf }, { ...processConfig, currency: 'HUF' });
+
+		// DEBUG: log the computed HUF values
+		console.log('[UNAS][DEBUG][computedPrices]', {
+			sku: rec.sku || rec['Cikkszám'] || '',
+			priceField,
+			priceValue,
+			currency,
+			priceHuf,
+			net,
+			gross
+		});
 
 		const after = {
 			...rec, // minden mező eredeti formában
 			price_net: net,
 			price_gross: gross,
-			currency,
+			currency: 'HUF',
 		};
 
 		if (dryRun) {
@@ -390,9 +501,11 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
+
 		// Meglévő UNAS termék lekérése
 		let before = null;
 		let exists = true;
+		let unasEntry = entry || {};
 		try {
 			const fetched = await fetchProductBySku(bearer, unasSku);
 			exists = fetched.exists;
@@ -406,6 +519,20 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				reason: 'Termék nem létezik a shopban (SKU)',
 			});
 			continue;
+		}
+
+		// Egészítsük ki a before-t az UNAS indexből származó orderable mezővel (mindig legyen string vagy null)
+		if (unasEntry) {
+			let orderableValue = unasEntry['Vásárolható, ha nincs Raktáron'];
+			if (orderableValue === undefined || orderableValue === null) {
+				orderableValue = '';
+			} else {
+				orderableValue = String(orderableValue);
+			}
+			before = {
+				...before,
+				orderable: orderableValue
+			};
 		}
 
 		const productNode = { Sku: unasSku };

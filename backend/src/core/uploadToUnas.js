@@ -61,14 +61,6 @@ function pickFeedKeyValueDynamic(rec, feedKey) {
 
 /** Nettó/Bruttó biztosítása a processConfig alapján */
 function ensureNetGross(item, processConfig) {
-	// --- DEBUG LOG: árforrások és deviza ---
-	console.log('[UNAS][DEBUG][ensureNetGross] input:', {
-		price: item.price,
-		price_net: item.price_net,
-		price_gross: item.price_gross,
-		currency: item.currency,
-		deviza: item.deviza
-	});
 	const vatPct = Number(processConfig?.vat ?? 0);
 	const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
@@ -164,7 +156,7 @@ const cacheKeyFor = (shopId, cfg) => `${shopId}:${hash(cfg)}`;
 
 const loadIndexFromFirestore = async (shopId, cfg) => {
 	const docId = `${shopId}_${hash(cfg)}`;
-	const doc = await db.collection('unasIndexes').doc(docId).get();
+	//const doc = await db.collection('unasIndexes').doc(docId).get();
 	if (!doc.exists) return null;
 	const data = doc.data();
 	if (!data || !data.updatedAt || !data.pairs) return null;
@@ -207,11 +199,11 @@ async function buildDynamicUnasIndex(shopId, cfg, rows, unasKey) {
 	if (memIndexCache.has(cKey)) return memIndexCache.get(cKey);
 
 	// Próbáljuk betölteni Firestore-ból
-	const disk = await loadIndexFromFirestore(shopId, cfg);
-	if (disk) {
-		memIndexCache.set(cKey, disk);
-		return disk;
-	}
+	// const disk = await loadIndexFromFirestore(shopId, cfg);
+	// if (disk) {
+	// 	memIndexCache.set(cKey, disk);
+	// 	return disk;
+	// }
 
 	// Ha nincs cache, építsük fel
 	const idx = makeUnasIndex(rows, unasKey);
@@ -415,7 +407,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 	for (const rec of records) {
 		// console.log(`[UNAS] Feldolgozás: feedKey=${feedKey}, unasKey=${unasKey}`);
-		console.log('[UNAS] Rekord:', rec);
+		// console.log('[UNAS] Rekord:', rec);
 		if (!feedKey) {
 			stats.skippedNoKey.push({
 				key: null,
@@ -424,7 +416,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 		const entry = unasIndex.get(rec[unasKey]);
-		console.log('[UNAS] Talált UNAS entry:', entry);
+		// console.log('[UNAS] Talált UNAS entry:', entry);
 		if (!entry || !entry.sku) {
 			stats.skippedNotFound.push({
 				key: unasKey,
@@ -472,6 +464,12 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// Árképzés (árrés, ÁFA, stb.)
 		const { net, gross } = await ensureNetGross({ price: priceHuf }, { ...processConfig, currency: 'HUF' });
 
+		// Bruttó felkerekítése, a config rounding alapján
+		if (processConfig?.rounding && processConfig.rounding > 0) {
+			const factor = Math.max(1, Number(processConfig.rounding) || 0);
+			gross = Math.ceil(gross / factor) * factor;
+		}
+
 		// DEBUG: log the computed HUF values
 		console.log('[UNAS][DEBUG][computedPrices]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
@@ -483,11 +481,30 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			gross
 		});
 
+		// Orderable számítása: készlet és stockThreshold alapján
+		let stockField = processConfig?.fieldMapping?.Stock || 'stock';
+		let feedStock = rec[stockField];
+		let stockNum = Number(feedStock);
+		let threshold = Number(processConfig?.stockThreshold ?? 0);
+		let afterOrderable = null;
+		if (Number.isFinite(stockNum)) {
+			afterOrderable = stockNum < threshold ? 0 : 1;
+		}
+		// Logoljuk a számítást
+		console.log('[UNAS][DEBUG][orderable calc]', {
+			sku: rec.sku || rec['Cikkszám'] || '',
+			stockField,
+			feedStock,
+			stockNum,
+			threshold,
+			orderable: afterOrderable
+		});
 		const after = {
 			...rec, // minden mező eredeti formában
 			price_net: net,
 			price_gross: gross,
 			currency: 'HUF',
+			orderable: afterOrderable
 		};
 
 		if (dryRun) {
@@ -521,9 +538,19 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
-		// Egészítsük ki a before-t az UNAS indexből származó orderable mezővel (mindig legyen string vagy null)
+		// Debug: log what comes from the feed and from the UNAS index
+		console.log('[UNAS][DEBUG][orderable feed]', {
+			sku: rec.sku || rec['Cikkszám'] || '',
+			feedOrderable: rec.orderable,
+			feedRaw: rec
+		});
 		if (unasEntry) {
 			let orderableValue = unasEntry['Vásárolható, ha nincs Raktáron'];
+			console.log('[UNAS][DEBUG][orderable unasIndex]', {
+				sku: unasSku,
+				unasOrderable: orderableValue,
+				unasEntry
+			});
 			if (orderableValue === undefined || orderableValue === null) {
 				orderableValue = '';
 			} else {
@@ -542,20 +569,29 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// 	productNode.Stocks = { Stock: { Qty: String(qty) } };
 		// }
 
-		// Paraméterként adjuk át a "Vásárolható, ha nincs Raktáron" mezőt
-		if (rec.orderable !== undefined) {
-			const paramKeys = ['Vásárolható, ha nincs Raktáron'];
-			const parameters = [];
-			for (const key of paramKeys) {
-				if (rec[key] !== undefined) {
-					parameters.push({
-						Name: key,
-						Value: String(rec[key]),
-					});
-				}
+		// Mindig adjuk át az "orderable" mezőt, ha az after objektumban szerepel
+		if (after.orderable !== undefined) {
+			// Normalizáljuk az értéket: csak "1" vagy "0" legyen (vagy üres, ha nem értelmezhető)
+			let orderableVal = after.orderable;
+			if (orderableVal === true || orderableVal === 1 || orderableVal === '1') orderableVal = '1';
+			else if (orderableVal === false || orderableVal === 0 || orderableVal === '0') orderableVal = '0';
+			else if (typeof orderableVal === 'string') {
+				const trimmed = orderableVal.trim();
+				if (trimmed === '1' || trimmed.toLowerCase() === 'igen' || trimmed.toLowerCase() === 'true') orderableVal = '1';
+				else if (trimmed === '0' || trimmed.toLowerCase() === 'nem' || trimmed.toLowerCase() === 'false') orderableVal = '0';
+				else orderableVal = '';
+			} else {
+				orderableVal = '';
 			}
-			if (parameters.length) {
-				productNode.Parameters = parameters;
+			// Logoljuk a feltöltendő értéket
+			// console.log('[UNAS][DEBUG][orderable param]', { sku: unasSku, outgoing: orderableVal, original: after.orderable });
+			if (orderableVal !== '') {
+				productNode.Parameters = [
+					{
+						Name: 'Vásárolható, ha nincs Raktáron',
+						Value: orderableVal,
+					},
+				];
 			}
 		}
 		productNode.Prices = {
@@ -574,8 +610,13 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			Products: { Product: { Action: 'modify', ...productNode } },
 		});
 
+		// Debug: log the full XML payload before sending
+		console.log('[UNAS][DEBUG][XML payload]', { sku: unasSku, payload });
+
 		try {
 			const resp = await postXml('setProduct', payload, bearer);
+			// Debug: log the response from UNAS
+			console.log('[UNAS][DEBUG][UNAS response]', { sku: unasSku, status: resp.status, statusText: resp.statusText, data: resp.data });
 			if (resp.status < 200 || resp.status >= 300) {
 				stats.failed.push({
 					key: feedKey,
@@ -596,6 +637,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				changes,
 			});
 		} catch (err) {
+			// Debug: log the error response
+			console.error('[UNAS][DEBUG][UNAS error]', { sku: unasSku, error: err?.message, response: err?.response?.data });
 			stats.failed.push({
 				key: feedKey,
 				sku: unasSku,

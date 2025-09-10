@@ -52,7 +52,7 @@
 		<!-- Raktárkészlet (küszöb) – az árképzés elé -->
 		<el-form-item label="Raktárkészlet (küszöb)">
 			<el-tooltip
-				content="Csak azokat a termékeket importáljuk, amelyek raktárkészlete legalább ennyi."
+				content="Ha a beszállítói készlet ennél kevesebb, akkor nem vásárolható az UNAS-ban."
 				placement="top"
 			>
 				<el-input-number

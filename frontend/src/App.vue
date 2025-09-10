@@ -147,20 +147,45 @@
 			const showForm = ref(false);
 			const editedProcess = ref({});
 
-			const loadConfig = async () => {
+			let configCache = null;
+			let configCacheTs = 0;
+			let logsCache = null;
+			let logsCacheTs = 0;
+			const CONFIG_CACHE_TTL_MS = 10 * 60 * 1000; // 10 perc
+			const LOGS_CACHE_TTL_MS = 30 * 1000; // log marad 30s
+
+			const loadConfig = async (force = false) => {
 				if (!user.value) return;
+				const now = Date.now();
+				if (!force && configCache && (now - configCacheTs < CONFIG_CACHE_TTL_MS)) {
+					shops.value = configCache.shops;
+					processes.value = configCache.processes;
+					if (!selectedShop.value && shops.value.length) {
+						selectedShop.value = shops.value[0].shopId;
+					}
+					return;
+				}
 				const res = await api.getConfig();
 				shops.value = res.data.shops;
 				processes.value = res.data.processes;
+				configCache = { shops: res.data.shops, processes: res.data.processes };
+				configCacheTs = now;
 				if (!selectedShop.value && shops.value.length) {
 					selectedShop.value = shops.value[0].shopId;
 				}
 			};
 
-			const loadLogs = async () => {
+			const loadLogs = async (force = false) => {
 				if (!user.value) return;
+				const now = Date.now();
+				if (!force && logsCache && (now - logsCacheTs < LOGS_CACHE_TTL_MS)) {
+					logs.value = logsCache;
+					return;
+				}
 				const res = await api.getLogs();
 				logs.value = res.data;
+				logsCache = res.data;
+				logsCacheTs = now;
 			};
 
 			const filteredProcesses = computed(() =>
@@ -206,6 +231,8 @@
 
 				await api.saveConfig(proc);
 
+				configCache = null; // cache törlés
+				configCacheTs = 0;
 				showForm.value = false;
 				loadConfig();
 			};
@@ -213,6 +240,8 @@
 			async function handleDelete(processId) {
 				try {
 					await api.deleteConfig(processId);
+					configCache = null; // cache törlés
+					configCacheTs = 0;
 					await loadConfig();
 					ElMessage.success('Folyamat törölve.');
 				} catch (err) {
@@ -300,9 +329,9 @@
 					loadConfig();
 					loadLogs();
 				}
-				setInterval(() => {
-					if (user.value) loadLogs();
-				}, 100000);
+				// setInterval(() => {
+				// 	if (user.value) loadLogs();
+				// }, 100000); // 100s
 				const un = onAuthStateChanged(auth, (u) => {
 					user.value = u;
 					ready.value = true; // <-- csak ekkor engedjük a UI-t dönteni

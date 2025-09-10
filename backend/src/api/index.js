@@ -52,11 +52,21 @@ router.use((req, res, next) => {
 	return allowCronOrUser(requireFirebaseUser)(req, res, next);
 });
 
-/** UNAS ProductDB mezőlista adott shopDocId szerint */
+// --- /unas/fields cache ---
+const unasFieldsCache = new Map(); // kulcs: shopId|processId, érték: { ts, data }
+const UNAS_FIELDS_CACHE_TTL_MS = 30 * 1000;
+
 router.get('/unas/fields', async (req, res) => {
 	try {
 		const { shopId, processId } = req.query || {};
 		if (!shopId) throw new BadRequestError('shopId szükséges');
+
+		const cacheKey = `${shopId}|${processId || ''}`;
+		const now = Date.now();
+		const cached = unasFieldsCache.get(cacheKey);
+		if (cached && (now - cached.ts < UNAS_FIELDS_CACHE_TTL_MS)) {
+			return res.json(cached.data);
+		}
 
 		const shop = await loadShopById(shopId);
 		const { apiKey } = shop;
@@ -66,7 +76,6 @@ router.get('/unas/fields', async (req, res) => {
 			const doc = await db.collection('processes').doc(String(processId)).get();
 			if (doc.exists) {
 				const pc = doc.data() || {};
-
 				paramsXml =
 					pc?.productDb?.paramsXml || pc?.unas?.productDb?.paramsXml || null;
 			}
@@ -79,7 +88,9 @@ router.get('/unas/fields', async (req, res) => {
 			id: h.id !== undefined ? String(h.id) : null,
 		}));
 
-		return res.json({ shopId, count: fields.length, fields });
+		const data = { shopId, count: fields.length, fields };
+		unasFieldsCache.set(cacheKey, { ts: now, data });
+		return res.json(data);
 	} catch (e) {
 		console.error('[GET /api/unas/fields] error:', e);
 		const status = e?.code === 'BAD_REQUEST' ? 400 : 500;
@@ -89,9 +100,17 @@ router.get('/unas/fields', async (req, res) => {
 	}
 });
 
-/** Firestore konfig olvasás */
+// --- /api/config cache ---
+let configCache = null;
+let configCacheTs = 0;
+const CONFIG_CACHE_TTL_MS = 30 * 1000; // 30 másodperc
+
 router.get('/config', async (_req, res) => {
 	try {
+		const now = Date.now();
+		if (configCache && (now - configCacheTs < CONFIG_CACHE_TTL_MS)) {
+			return safeJson(res, 200, configCache);
+		}
 		if (!db || !db.collection) {
 			return safeJson(res, 503, {
 				shops: [],
@@ -109,7 +128,10 @@ router.get('/config', async (_req, res) => {
 			...d.data(),
 		}));
 
-		return safeJson(res, 200, { shops, processes });
+		const payload = { shops, processes };
+		configCache = payload;
+		configCacheTs = now;
+		return safeJson(res, 200, payload);
 	} catch (e) {
 		console.error('[GET /api/config] error:', e);
 		return safeJson(res, 500, {

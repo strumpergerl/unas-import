@@ -462,7 +462,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		// Árképzés (árrés, ÁFA, stb.)
-		const { net, gross } = await ensureNetGross({ price: priceHuf }, { ...processConfig, currency: 'HUF' });
+		const netGross = await ensureNetGross({ price: priceHuf }, { ...processConfig, currency: 'HUF' });
+		let net = netGross.net;
+		let gross = netGross.gross;
 
 		// Bruttó felkerekítése, a config rounding alapján
 		if (processConfig?.rounding && processConfig.rounding > 0) {

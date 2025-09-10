@@ -12,8 +12,8 @@ const toTs = (d) =>
 		? d
 		: admin.firestore.Timestamp.fromDate(new Date(d));
 
-/** Régi futások törlése finishedAtTs alapján (alap: 30 nap) */
-async function pruneOldRuns(maxAgeDays = 30) {
+/** Régi futások törlése finishedAtTs alapján (alap: 7 nap) */
+async function pruneOldRuns(maxAgeDays = 7) {
 	const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
 	const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
 	let deleted = 0;
@@ -23,7 +23,7 @@ async function pruneOldRuns(maxAgeDays = 30) {
 			.collection('runs')
 			.where('finishedAtTs', '<', cutoffTs)
 			.orderBy('finishedAtTs', 'asc')
-			.limit(450)
+			.limit(25) 
 			.get();
 
 		if (snap.empty) break;
@@ -33,7 +33,7 @@ async function pruneOldRuns(maxAgeDays = 30) {
 		await batch.commit();
 		deleted += snap.size;
 
-		if (snap.size < 450) break;
+		if (snap.size < 25) break;
 	}
 	return deleted;
 }
@@ -73,7 +73,7 @@ async function addRun(run) {
 }
 
 /** Legutóbbi futások lekérése (Timestamp szerint, fallback createdAt) */
-async function getLogs(limit = 100) {
+async function getLogs(limit = 25) {
 	try {
 		const snap = await db
 			.collection('runs')
@@ -159,80 +159,98 @@ async function runProcessById(processId) {
 		run.counts.input = Array.isArray(recs) ? recs.length : 0;
 		run.counts.output = Array.isArray(trans) ? trans.length : 0;
 
-		// 4) Upload (ha nem dryRun)
-		let stats = {
-			modified: [],
-			skippedNoKey: [],
-			skippedNotFound: [],
-			failed: [],
-			dryRun: true,
-		};
+		   // 4) Upload (ha nem dryRun)
+		   let stats = {
+			   modified: [],
+			   skippedNoKey: [],
+			   skippedNotFound: [],
+			   failed: [],
+			   dryRun: true,
+		   };
 
-		const t5 = Date.now();
-		if (!proc.dryRun) {
-			stats = await uploadToUnas(trans, proc, shop);
-		}
-		const t6 = Date.now();
+		   const t5 = Date.now();
+		   if (!proc.dryRun) {
+			   stats = await uploadToUnas(trans, proc, shop);
+		   }
+		   const t6 = Date.now();
 
-		run.counts.modified = stats.modified?.length || 0;
-		run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
-		run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
-		run.counts.failed = stats.failed?.length || 0;
+		   run.counts.modified = stats.modified?.length || 0;
+		   run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
+		   run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
+		   run.counts.failed = stats.failed?.length || 0;
 
-		// Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
-		for (const m of stats.modified || []) {
-      const hasChange = m.changes && Object.keys(m.changes).length > 0;
-			run.items.push({
-				key: m.key ?? null,
-				sku: m.sku ?? null,
-				unasKey: m.unasKey ?? null, 
-				action: hasChange ? 'modify' : 'skip',
-				changes: m.changes || {},
-				before: m.before ?? null,
-				after: m.after ?? null,
-			});
-		}
-		for (const s of stats.skippedNoKey || []) {
-			run.items.push({
-				key: s.key ?? null,
-				sku: null,
-				unasKey: s.unasKey ?? null,
-				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'No key',
-			});
-		}
-		for (const s of stats.skippedNotFound || []) {
-			run.items.push({
-				key: s.key ?? null,
-				sku: null,
-				unasKey: s.unasKey ?? null, 
-				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'Not found',
-			});
-		}
-		for (const f of stats.failed || []) {
-			run.items.push({
-				key: f.key ?? null,
-				sku: f.sku ?? null,
-				unasKey: f.unasKey ?? null, 
-				action: 'fail',
-				changes: {},
-				before: null,
-				after: null,
-				error: f.error || f.statusText || 'Failed',
-			});
-		}
+		   // Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
+		   for (const m of stats.modified || []) {
+			   const hasChange = m.changes && Object.keys(m.changes).length > 0;
+			   run.items.push({
+				   key: m.key ?? null,
+				   sku: m.sku ?? null,
+				   unasKey: m.unasKey ?? null, 
+				   action: hasChange ? 'modify' : 'skip',
+				   changes: m.changes || {},
+				   before: m.before ?? null,
+				   after: m.after ?? null,
+			   });
+		   }
+		   for (const s of stats.skippedNoKey || []) {
+			   run.items.push({
+				   key: s.key ?? null,
+				   sku: null,
+				   unasKey: s.unasKey ?? null,
+				   action: 'skip',
+				   changes: {},
+				   before: null,
+				   after: null,
+				   error: s.reason || 'No key',
+			   });
+		   }
+		   for (const s of stats.skippedNotFound || []) {
+			   run.items.push({
+				   key: s.key ?? null,
+				   sku: null,
+				   unasKey: s.unasKey ?? null, 
+				   action: 'skip',
+				   changes: {},
+				   before: null,
+				   after: null,
+				   error: s.reason || 'Not found',
+			   });
+		   }
+		   for (const f of stats.failed || []) {
+			   run.items.push({
+				   key: f.key ?? null,
+				   sku: f.sku ?? null,
+				   unasKey: f.unasKey ?? null, 
+				   action: 'fail',
+				   changes: {},
+				   before: null,
+				   after: null,
+				   error: f.error || f.statusText || 'Failed',
+			   });
+		   }
 
-		run.stages.downloadMs = t2 - t1;
-		run.stages.parseMs = t3 - t2;
-		run.stages.transformMs = t4 - t3;
-		run.stages.uploadMs = t6 - t5;
+		   run.stages.downloadMs = t2 - t1;
+		   run.stages.parseMs = t3 - t2;
+		   run.stages.transformMs = t4 - t3;
+		   run.stages.uploadMs = t6 - t5;
+
+		   // --- EMAIL NOTIFICATION ---
+		   try {
+			   const procName = run.processName || processId;
+			   if (!run.error) {
+				   // Sikeres szinkron
+				   const subject = `Szinkron lefutott - ${procName}`;
+				   const body = `Módosított termékek száma: ${run.counts.modified}\nHibás termékek száma: ${run.counts.failed}`;
+				   await sendNotification(subject, body);
+			   } else {
+				   // Sikertelen szinkron
+				   const subject = `Szinkron hiba - ${procName}`;
+				   const body = `Hiba oka: ${run.error}`;
+				   await sendNotification(subject, body);
+			   }
+		   } catch (e) {
+			   console.warn('[RUNNER] Email notification error:', e?.message || e);
+		   }
 	} catch (err) {
 		run.error = err?.message || String(err);
 		try {

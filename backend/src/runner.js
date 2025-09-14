@@ -95,6 +95,7 @@ async function getLogs(limit = 25) {
 /** Egy folyamat futtatása és logolása */
 async function runProcessById(processId) {
 	const startedAt = new Date();
+	let resolvedApiKey = null;
 	const run = {
 		id: `${processId}_${startedAt.toISOString()}`,
 		processId,
@@ -136,13 +137,24 @@ async function runProcessById(processId) {
 			.get();
 		if (!shopSnap.exists)
 			throw new Error(`Shop not found in Firestore: ${proc.shopId}`);
-		const shop = { shopId: shopSnap.id, ...shopSnap.data() };
 
-		// DEBUG LOG: processId, shopId, shop, apiKey
+		let shop = { shopId: shopSnap.id, ...shopSnap.data() };
+		// apiKey placeholder feloldása, ha szükséges
+		if (typeof shop.apiKey === 'string' && shop.apiKey.startsWith('${') && shop.apiKey.endsWith('}')) {
+			const envVar = shop.apiKey.slice(2, -1);
+			resolvedApiKey = process.env[envVar] || null;
+			if (resolvedApiKey) {
+				shop.apiKey = resolvedApiKey;
+			}
+		} else {
+			resolvedApiKey = shop.apiKey;
+		}
+
+		// DEBUG LOG: processId, shopId, shop, apiKey resolved-e
 		console.log('[RUNNER][DEBUG]', {
 		  processId,
 		  shopId: proc.shopId,
-		  shopDoc: shop,
+		  shopDoc: { ...shop, apiKey: resolvedApiKey ? '[RESOLVED]' : '[NOT RESOLVED]' },
 		});
 
 		run.processName = proc.displayName || proc.processId;

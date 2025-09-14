@@ -3,10 +3,11 @@ const { serve } = require('inngest/express');
 const { runProcessById, pruneOldRuns } = require("./runner");
 const { db } = require("./db/firestore");
 
+console.log("[DEBUG] SHOPX_API_KEY is set:", !!process.env.SHOP3_API_KEY);
 const inngest = new Inngest({
-        id: "unas-import", // vagy appId, de id legyen!
-        name: "unas-import",
-        //eventKey: process.env.INNGEST_EVENT_KEY, // vagy közvetlenül az API kulcs
+    id: "unas-import", // vagy appId, de id legyen!
+    name: "unas-import",
+    //eventKey: process.env.INNGEST_EVENT_KEY, // vagy közvetlenül az API kulcs
 });
 
 // Dinamikus scheduler: 5 percenként ellenőrzi az összes aktív process-t

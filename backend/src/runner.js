@@ -143,7 +143,6 @@ async function runProcessById(processId) {
 		  processId,
 		  shopId: proc.shopId,
 		  shopDoc: shop,
-		  apiKey: shop.apiKey
 		});
 
 		run.processName = proc.displayName || proc.processId;

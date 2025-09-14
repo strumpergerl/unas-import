@@ -36,7 +36,6 @@ const builder = new xml2js.Builder({ headless: true });
 const keepAliveHttp = new http.Agent({ keepAlive: true, maxSockets: 20 });
 const keepAliveHttps = new https.Agent({ keepAlive: true, maxSockets: 20 });
 
-// ---- Közös utilok ----
 const toPosNumberString = (v) => {
 	const n = Number(v);
 	if (!Number.isFinite(n)) return '0';
@@ -53,6 +52,8 @@ const hash = (obj) =>
 const formulaHasVat = (formula) =>
 	typeof formula === 'string' && /\{vat\}/i.test(formula);
 
+
+
 // ---- Mezők kiválasztása a feed rekordból  ----
 function pickFeedKeyValueDynamic(rec, feedKey) {
 	console.log('[DEBUG] pickFeedKeyValueDynamic', { rec, feedKey });
@@ -61,72 +62,72 @@ function pickFeedKeyValueDynamic(rec, feedKey) {
 
 /** Nettó/Bruttó biztosítása a processConfig alapján */
 function ensureNetGross(item, processConfig) {
-	const vatPct = Number(processConfig?.vat ?? 0);
-	const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
+		const vatPct = Number(processConfig?.vat ?? 0);
+		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
-	const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
+		const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
 
-	// --- Árforrások ---
-	let inNet = item.price_net != null ? Number(item.price_net) : null;
-	let inGross = item.price_gross != null ? Number(item.price_gross) : null;
-	let legacy = item.price != null ? Number(item.price) : null;
-	let priceCurrency = (item.currency || item.deviza || '').toUpperCase() || 'HUF';
-	const targetCurrency = (processConfig?.targetCurrency || processConfig?.currency || 'HUF').toUpperCase();
+		// --- Árforrások ---
+		let inNet = item.price_net != null ? Number(item.price_net) : null;
+		let inGross = item.price_gross != null ? Number(item.price_gross) : null;
+		let legacy = item.price != null ? Number(item.price) : null;
+		let priceCurrency = (item.currency || item.deviza || '').toUpperCase() || 'HUF';
+		const targetCurrency = (processConfig?.targetCurrency || processConfig?.currency || 'HUF').toUpperCase();
 
-	// --- Ha nem HUF, először átváltjuk ---
-	async function convertIfNeeded(amount) {
-		if (!amount || priceCurrency === targetCurrency) return amount;
-		return await convertCurrency(amount, priceCurrency, targetCurrency);
-	}
-
-	async function compute() {
-		// Ár konverzió, ha szükséges
-		if (priceCurrency !== targetCurrency) {
-			if (inNet != null) inNet = await convertIfNeeded(inNet);
-			if (inGross != null) inGross = await convertIfNeeded(inGross);
-			if (legacy != null) legacy = await convertIfNeeded(legacy);
-			priceCurrency = targetCurrency;
+		// --- Ha nem HUF, először átváltjuk ---
+		async function convertIfNeeded(amount) {
+			if (!amount || priceCurrency === targetCurrency) return amount;
+			return await convertCurrency(amount, priceCurrency, targetCurrency);
 		}
 
-		let net = null, gross = null;
-		if (
-			Number.isFinite(inNet) &&
-			inNet > 0 &&
-			Number.isFinite(inGross) &&
-			inGross > 0
-		) {
-			net = inNet;
-			gross = inGross;
-		} else if (Number.isFinite(inNet) && inNet > 0) {
-			net = inNet;
-			gross = inNet * vatFactor;
-		} else if (Number.isFinite(inGross) && inGross > 0) {
-			gross = inGross;
-			net = vatFactor > 0 ? inGross / vatFactor : inGross;
-		} else if (Number.isFinite(legacy) && legacy > 0) {
-			if (treatLegacyAsGross) {
-				gross = legacy;
-				net = vatFactor > 0 ? legacy / vatFactor : legacy;
-			} else {
-				net = legacy;
-				gross = legacy * vatFactor;
+		async function compute() {
+			// Ár konverzió, ha szükséges
+			if (priceCurrency !== targetCurrency) {
+				if (inNet != null) inNet = await convertIfNeeded(inNet);
+				if (inGross != null) inGross = await convertIfNeeded(inGross);
+				if (legacy != null) legacy = await convertIfNeeded(legacy);
+				priceCurrency = targetCurrency;
 			}
-		} else {
-			net = 0;
-			gross = 0;
+
+			let net = null, gross = null;
+			if (
+				Number.isFinite(inNet) &&
+				inNet > 0 &&
+				Number.isFinite(inGross) &&
+				inGross > 0
+			) {
+				net = inNet;
+				gross = inGross;
+			} else if (Number.isFinite(inNet) && inNet > 0) {
+				net = inNet;
+				gross = inNet * vatFactor;
+			} else if (Number.isFinite(inGross) && inGross > 0) {
+				gross = inGross;
+				net = vatFactor > 0 ? inGross / vatFactor : inGross;
+			} else if (Number.isFinite(legacy) && legacy > 0) {
+				if (treatLegacyAsGross) {
+					gross = legacy;
+					net = vatFactor > 0 ? legacy / vatFactor : legacy;
+				} else {
+					net = legacy;
+					gross = legacy * vatFactor;
+				}
+			} else {
+				net = 0;
+				gross = 0;
+			}
+
+			net = Math.floor(Math.max(0, net));
+			gross = Math.floor(Math.max(0, gross));
+			return {
+				net,
+				gross,
+				currency: targetCurrency,
+			};
 		}
 
-		net = Math.floor(Math.max(0, net));
-		gross = Math.floor(Math.max(0, gross));
-		return {
-			net,
-			gross,
-			currency: targetCurrency,
-		};
-	}
-
-	// Mivel a hívó nem async, visszaadunk egy Promise-t, amit a hívó oldalon await-elni kell!
-	return compute();
+		// Mivel a hívó nem async, visszaadunk egy Promise-t, amit a hívó oldalon await-elni kell!
+		return compute();
 }
 
 // ---- UNAS XML POST ----
@@ -429,15 +430,18 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		// --- Árképzés: csak a feed Price mezőjével számolunk, a config szerinti devizában ---
 		let priceValue = null;
-		let priceField = processConfig?.fieldMapping?.Price || 'Price';
-		if (rec[priceField] !== undefined) {
+		let priceField = processConfig?.priceFields?.feed;
+		console.log('[UNAS][DEBUG] priceField from config:', priceField);
+
+		// Ármező explicit ellenőrzése
+		if (rec.hasOwnProperty(priceField) && rec[priceField] !== undefined && rec[priceField] !== null && rec[priceField] !== '') {
 			// Tisztítás: számot kinyerjük (pl. "19.99 EUR" vagy "19,99EUR")
 			const raw = String(rec[priceField]).replace(',', '.');
 			const match = raw.match(/([0-9.]+)/);
 			if (match) priceValue = parseFloat(match[1]);
 		}
 		// Ha nincs értelmes ár, ne írjuk át 0-ra, hanem logoljuk és hibaként kezeljük
-		if (!Number.isFinite(priceValue)) {
+		if (!Number.isFinite(priceValue) || priceValue < 0) {
 			const msg = `[UNAS][ERROR] Érvénytelen ár a rekordban (sku: ${rec.sku || rec['Cikkszám'] || ''}, field: ${priceField}, value: ${rec[priceField]})`;
 			console.error(msg);
 			stats.failed.push({
@@ -483,30 +487,19 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			gross
 		});
 
-		// Orderable számítása: készlet és stockThreshold alapján
-		let stockField = processConfig?.fieldMapping?.Stock || 'stock';
-		let feedStock = rec[stockField];
-		let stockNum = Number(feedStock);
-		let threshold = Number(processConfig?.stockThreshold ?? 0);
-		let afterOrderable = null;
-		if (Number.isFinite(stockNum)) {
-			afterOrderable = stockNum < threshold ? 0 : 1;
-		}
+		// Orderable: csak a bemeneti rekordból vesszük át, nem számoljuk újra
+		let orderable = rec.orderable;
 		// Logoljuk a számítást
 		console.log('[UNAS][DEBUG][orderable calc]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
-			stockField,
-			feedStock,
-			stockNum,
-			threshold,
-			orderable: afterOrderable
+			orderable: orderable
 		});
 		const after = {
 			...rec, // minden mező eredeti formában
 			price_net: net,
 			price_gross: gross,
-			currency: 'HUF',
-			orderable: afterOrderable
+			currency: currency,
+			orderable: orderable
 		};
 
 		if (dryRun) {
@@ -543,7 +536,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// Debug: log what comes from the feed and from the UNAS index
 		console.log('[UNAS][DEBUG][orderable feed]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
-			feedOrderable: rec.orderable,
+			orderable: orderable,
 			feedRaw: rec
 		});
 		if (unasEntry) {
@@ -553,11 +546,6 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				unasOrderable: orderableValue,
 				unasEntry
 			});
-			if (orderableValue === undefined || orderableValue === null) {
-				orderableValue = '';
-			} else {
-				orderableValue = String(orderableValue);
-			}
 			before = {
 				...before,
 				orderable: orderableValue
@@ -572,29 +560,13 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// }
 
 		// Mindig adjuk át az "orderable" mezőt, ha az after objektumban szerepel
-		if (after.orderable !== undefined) {
-			// Normalizáljuk az értéket: csak "1" vagy "0" legyen (vagy üres, ha nem értelmezhető)
-			let orderableVal = after.orderable;
-			if (orderableVal === true || orderableVal === 1 || orderableVal === '1') orderableVal = '1';
-			else if (orderableVal === false || orderableVal === 0 || orderableVal === '0') orderableVal = '0';
-			else if (typeof orderableVal === 'string') {
-				const trimmed = orderableVal.trim();
-				if (trimmed === '1' || trimmed.toLowerCase() === 'igen' || trimmed.toLowerCase() === 'true') orderableVal = '1';
-				else if (trimmed === '0' || trimmed.toLowerCase() === 'nem' || trimmed.toLowerCase() === 'false') orderableVal = '0';
-				else orderableVal = '';
-			} else {
-				orderableVal = '';
-			}
-			// Logoljuk a feltöltendő értéket
-			// console.log('[UNAS][DEBUG][orderable param]', { sku: unasSku, outgoing: orderableVal, original: after.orderable });
-			if (orderableVal !== '') {
-				productNode.Parameters = [
-					{
-						Name: 'Vásárolható, ha nincs Raktáron',
-						Value: orderableVal,
-					},
-				];
-			}
+		if (after.orderable !== undefined && after.orderable !== '') {
+			productNode.Parameters = [
+				{
+					Name: 'Vásárolható, ha nincs Raktáron',
+					Value: after.orderable,
+				},
+			];
 		}
 		productNode.Prices = {
 			Price: {

@@ -99,7 +99,15 @@
 		</template>
 
 		<!-- Auth állapot még nem ismert -->
-		<template v-else>Betöltés…</template>
+		<template v-else>
+			<el-main style="display: flex; align-items: center; justify-content: center; height: 60vh;">
+				<div style="text-align: center;">
+					<el-icon class="is-loading" style="font-size: 48px; color: #409EFF;">
+						<Loading />
+					</el-icon>
+				</div>
+			</el-main>
+		</template>
 	</el-container>
 </template>
 

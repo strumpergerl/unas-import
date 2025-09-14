@@ -7,8 +7,11 @@
 			/>
 		</el-form-item>
 
-		<el-form-item label="Webshop">
-			<el-tag type="info">{{ activeShopName }}</el-tag>
+		<el-form-item label="Beszállító">
+			<el-input
+				v-model="form.supplierName"
+				placeholder="Beszállító neve, ahogy az UNAS-ban szerepel"
+			/>
 		</el-form-item>
 
 		<el-form-item label="Feed URL">
@@ -21,7 +24,7 @@
 		<el-form-item label="Szinkron gyakorisága">
 			<el-select v-model="form.frequency">
 				<el-option
-					v-for="opt in ['0', '12h', '24h', '48h', '72h', '168h']"
+					v-for="opt in ['0', '5m', '12h', '24h', '48h', '72h', '168h']"
 					:key="opt"
 					:label="opt"
 					:value="opt"
@@ -200,19 +203,44 @@
 				v-for="(_, i) in mappingKeys"
 				:key="i"
 				class="mapping-row flex mb-2"
-				:class="{ 'active-key-row': selectedKeyIndex === i }"
+				:class="{
+					'active-key-row': selectedKeyIndex === i,
+					'active-price-row': fieldTypes[i] === 'price',
+					'active-stock-row': fieldTypes[i] === 'stock'
+				}"
 				style="margin-bottom: 1rem"
 			>
 				<el-row :gutter="20" style="width: 100%">
-					<el-tooltip content="Kulcs mező (összerendeléshez)" placement="right">
-						<el-button
-							:type="selectedKeyIndex === i ? 'success' : 'default'"
-							size="default"
-							@click="selectedKeyIndex = i"
-						>
-							<el-icon><Lock /></el-icon>
-						</el-button>
-					</el-tooltip>
+					<el-select
+						v-model="fieldTypes[i]"
+						size="default"
+						style="width: 100px; margin-right: 8px"
+						:class="'fieldtype-select ' + fieldTypes[i]"
+						@change="onFieldTypeChange(i)"
+						:popper-class="'fieldtype-popper'"
+					>
+
+						<el-option :value="'view'" label="Alap">
+							<template #default>
+								<el-icon><View /></el-icon> Alap
+							</template>
+						</el-option>
+						<el-option :value="'key'" label="Kulcs">
+							<template #default>
+								<el-icon><Lock /></el-icon> Kulcs
+							</template>
+						</el-option>
+						<el-option :value="'price'" label="Ár">
+							<template #default>
+								<el-icon><Money /></el-icon> Ár
+							</template>
+						</el-option>
+						<el-option :value="'stock'" label="Készlet">
+							<template #default>
+								<el-icon><Box /></el-icon> Készlet
+							</template>
+						</el-option>
+					</el-select>
 					<el-select
 						v-model="mappingKeys[i]"
 						filterable
@@ -228,6 +256,7 @@
 						placeholder="Feed mező keresése…"
 						class="w-full"
 						style="flex: 1"
+						:class="'fieldtype-input ' + fieldTypes[i]"
 					>
 						<el-option
 							v-for="opt in Array.isArray(feedOptionsFiltered)
@@ -247,6 +276,7 @@
 						placeholder="UNAS mező keresése…"
 						class="w-full"
 						style="flex: 1"
+						:class="'fieldtype-input ' + fieldTypes[i]"
 					>
 						<el-option-group
 							v-for="grp in Array.isArray(groupedOptionsFiltered)
@@ -263,6 +293,7 @@
 							/>
 						</el-option-group>
 					</el-select>
+
 					<el-button type="danger" icon="Delete" @click="removeMapping(i)" />
 				</el-row>
 			</div>
@@ -292,7 +323,7 @@
 			jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
 		</div>
 
-		<div style="padding: 20px; background: #f5f5f5">
+		<div style="padding: 20px; background: #f5f5f5" class="form-actions">
 			<!-- <el-form-item style="margin-top: 20px">
 				<el-switch
 					v-model="form.dryRun"
@@ -302,10 +333,10 @@
 				/>
 			</el-form-item> -->
 			<el-form-item style="margin-top: 20px">
+				<el-button size="large" @click="$emit('cancel')">Mégse</el-button>
 				<el-button type="primary" size="large" @click="submit"
 					>Mentés</el-button
 				>
-				<el-button size="large" @click="$emit('cancel')">Mégse</el-button>
 			</el-form-item>
 		</div>
 	</el-form>
@@ -323,16 +354,17 @@
 		onMounted,
 	} from 'vue';
 	import api from '../services/api';
+	import { Lock, Money, Box, View } from '@element-plus/icons-vue';
 
 	export default {
 		name: 'ProcessForm',
-		   props: {
-			   show: { type: Boolean, required: false, default: false },
-			   shops: { type: Array, required: true },
-			   user: { type: Object, required: true },
-			   initial: { type: Object, required: true },
-			   activeShopId: { type: String, required: true, default: '' },
-		   },
+		props: {
+			show: { type: Boolean, required: false, default: false },
+			shops: { type: Array, required: true },
+			user: { type: Object, required: true },
+			initial: { type: Object, required: true },
+			activeShopId: { type: String, required: true, default: '' },
+		},
 
 		setup(props, { emit }) {
 			const form = reactive({ vat: 27, stockThreshold: 1, ...props.initial });
@@ -342,7 +374,7 @@
 			// Ha van keyFields, állítsuk be a selectedKeyIndex-et a megfelelő mezőre
 			function updateSelectedKeyIndex() {
 				if (form.keyFields && form.keyFields.feed) {
-					const idx = mappingKeys.findIndex(k => k === form.keyFields.feed);
+					const idx = mappingKeys.findIndex((k) => k === form.keyFields.feed);
 					if (idx !== -1) selectedKeyIndex.value = idx;
 				}
 			}
@@ -363,31 +395,93 @@
 			// Megőrizzük a kulcsok sorrendjét, ha van fieldMappingOrder az initial-ban
 			let initialMappingObj = { ...(form.fieldMapping || {}) };
 			let keyOrder = Array.isArray(props.initial.fieldMappingOrder)
-				? props.initial.fieldMappingOrder.filter(k => k in initialMappingObj)
+				? props.initial.fieldMappingOrder.filter((k) => k in initialMappingObj)
 				: Object.keys(initialMappingObj);
 			const mappingKeys = reactive([...keyOrder]);
-			const mappingValues = reactive(mappingKeys.map(k => initialMappingObj[k]));
+			const mappingValues = reactive(
+				mappingKeys.map((k) => initialMappingObj[k])
+			);
 
 			if (mappingKeys.length === 0) {
 				// induljon egy üres sorral, hogy a felhasználó tudjon kezdeni
 				mappingKeys.push('');
 				mappingValues.push('');
 			}
-		       // Ha a mappingKeys már megvan, próbáljuk beállítani a selectedKeyIndex-et
-		       updateSelectedKeyIndex();
-		       // Ha props.initial változik (pl. szerkesztéskor), frissítsük a mapping sorrendet és a selectedKeyIndex-et is
-		       watch(() => props.initial, () => {
-			       let newOrder = Array.isArray(props.initial.fieldMappingOrder)
-				       ? props.initial.fieldMappingOrder.filter(k => k in form.fieldMapping)
-				       : Object.keys(form.fieldMapping || {});
-			       mappingKeys.splice(0, mappingKeys.length, ...newOrder);
-			       mappingValues.splice(0, mappingValues.length, ...newOrder.map(k => form.fieldMapping[k]));
-			       updateSelectedKeyIndex();
-		       }, { deep: true });
-		       // Ha mappingKeys változik (pl. mező hozzáadás/törlés), mindig próbáljuk visszaállítani a selectedKeyIndex-et
-		       watch(mappingKeys, () => {
-			       updateSelectedKeyIndex();
-		       });
+			// Ha a mappingKeys már megvan, próbáljuk beállítani a selectedKeyIndex-et
+			updateSelectedKeyIndex();
+			// Ha props.initial változik (pl. szerkesztéskor), frissítsük a mapping sorrendet és a selectedKeyIndex-et is
+			watch(
+				() => props.initial,
+				() => {
+					let newOrder = Array.isArray(props.initial.fieldMappingOrder)
+						? props.initial.fieldMappingOrder.filter(
+								(k) => k in form.fieldMapping
+						  )
+						: Object.keys(form.fieldMapping || {});
+					mappingKeys.splice(0, mappingKeys.length, ...newOrder);
+					mappingValues.splice(
+						0,
+						mappingValues.length,
+						...newOrder.map((k) => form.fieldMapping[k])
+					);
+					updateSelectedKeyIndex();
+					syncFieldTypes(); // <-- always recalc fieldTypes after config load
+				},
+				{ deep: true }
+			);
+			// Ha mappingKeys változik (pl. mező hozzáadás/törlés), mindig próbáljuk visszaállítani a selectedKeyIndex-et
+			watch(mappingKeys, () => {
+				updateSelectedKeyIndex();
+			});
+
+			   // --- Field type state for each mapping row ---
+			   const fieldTypes = ref([]);
+
+			   function syncFieldTypes() {
+				   // 1. explicit típusok beállítása, ha vannak
+				   for (let i = 0; i < mappingKeys.length; ++i) {
+					   const feedKey = mappingKeys[i];
+					   const unasKey = mappingValues[i];
+					   // key
+					   if (form.keyFields && form.keyFields.feed === feedKey && form.keyFields.unas === unasKey) {
+						   fieldTypes.value[i] = 'key';
+						   continue;
+					   }
+					   // price
+					   if (form.priceFields && form.priceFields.feed === feedKey && form.priceFields.unas === unasKey) {
+						   fieldTypes.value[i] = 'price';
+						   continue;
+					   }
+					   // stock
+					   if (form.stockFields && form.stockFields.feed === feedKey && form.stockFields.unas === unasKey) {
+						   fieldTypes.value[i] = 'stock';
+						   continue;
+					   }
+				   }
+				   while (fieldTypes.value.length > mappingKeys.length) fieldTypes.value.pop();
+			   }
+			   // Init
+			   syncFieldTypes();
+			   // Keep fieldTypes in sync with mapping rows
+			   watch([mappingKeys, mappingValues], () => {
+				   syncFieldTypes();
+			   });
+			   // When a row is set to 'key', unset all others
+			   function onFieldTypeChange(idx) {
+				   if (fieldTypes.value[idx] === 'key') {
+					   fieldTypes.value.forEach((t, i) => {
+						   if (i !== idx && t === 'key') fieldTypes.value[i] = 'view';
+					   });
+					   selectedKeyIndex.value = idx;
+				   }
+			   }
+			   // If selectedKeyIndex changes, update fieldTypes
+			   watch(selectedKeyIndex, (idx) => {
+				   fieldTypes.value.forEach((t, i) => {
+					   if (i === idx) fieldTypes.value[i] = 'key';
+					   else if (t === 'key') fieldTypes.value[i] = 'view';
+				   });
+			   });
 
 			const dryRun = ref(form.dryRun || false);
 
@@ -712,22 +806,22 @@
 			}
 
 			// ---- Mapping kezelők ----
-		       function addMapping() {
-			       mappingKeys.push('');
-			       mappingValues.push('');
-			       // Új mező hozzáadásakor ne változzon a selectedKeyIndex, csak ha nincs már kijelölve érvényes mező
-			       if (selectedKeyIndex.value >= mappingKeys.length - 1) {
-				       selectedKeyIndex.value = 0;
-			       }
-		       }
-		       function removeMapping(index) {
-			       mappingKeys.splice(index, 1);
-			       mappingValues.splice(index, 1);
-			       // Ha a törölt index volt a kijelölt, vagy utána, állítsuk vissza az első érvényesre
-			       if (selectedKeyIndex.value >= mappingKeys.length) {
-				       selectedKeyIndex.value = 0;
-			       }
-		       }
+			function addMapping() {
+				mappingKeys.push('');
+				mappingValues.push('');
+				// Új mező hozzáadásakor ne változzon a selectedKeyIndex, csak ha nincs már kijelölve érvényes mező
+				if (selectedKeyIndex.value >= mappingKeys.length - 1) {
+					selectedKeyIndex.value = 0;
+				}
+			}
+			function removeMapping(index) {
+				mappingKeys.splice(index, 1);
+				mappingValues.splice(index, 1);
+				// Ha a törölt index volt a kijelölt, vagy utána, állítsuk vissza az első érvényesre
+				if (selectedKeyIndex.value >= mappingKeys.length) {
+					selectedKeyIndex.value = 0;
+				}
+			}
 			function submit() {
 				const fm = {};
 				const order = [];
@@ -739,13 +833,35 @@
 					}
 				});
 				form.fieldMapping = fm;
-				   form.fieldMappingOrder = order;
+				form.fieldMappingOrder = order;
 
-				// Kulcspár mentése
+
+				// Kulcs, ár, készlet mezőpárok mentése (mindegyikből max 1)
+				// Kulcs mező
 				form.keyFields = {
 					feed: mappingKeys[selectedKeyIndex.value] || '',
 					unas: mappingValues[selectedKeyIndex.value] || '',
 				};
+				// Ár mező (első price típusú sor)
+				const priceIdx = fieldTypes.value.findIndex((t) => t === 'price');
+				if (priceIdx !== -1) {
+					form.priceFields = {
+						feed: mappingKeys[priceIdx] || '',
+						unas: mappingValues[priceIdx] || '',
+					};
+				} else {
+					form.priceFields = { feed: '', unas: '' };
+				}
+				// Készlet mező (első stock típusú sor)
+				const stockIdx = fieldTypes.value.findIndex((t) => t === 'stock');
+				if (stockIdx !== -1) {
+					form.stockFields = {
+						feed: mappingKeys[stockIdx] || '',
+						unas: mappingValues[stockIdx] || '',
+					};
+				} else {
+					form.stockFields = { feed: '', unas: '' };
+				}
 
 				form.pricingFormula = tokensToText(pricingTokens.value);
 
@@ -760,50 +876,52 @@
 						.slice(0, 19)}`;
 				}
 				// A processId-t mindig a Firestore doc id-jára kell állítani, hogy a listázás működjön
-				emit('save', { ...form, processId: form.processId });
+				emit('save', { ...form, supplierName: form.supplierName, processId: form.processId });
 			}
 
-	       // fieldMappingOrder NINCS visszaadva külön, csak a form részeként
-	       return {
-		       form,
-		       selectedKeyIndex,
-		       mappingKeys,
-		       mappingValues,
-		       removeMapping,
-		       addMapping,
-		       submit,
-		       activeShopName,
-		       activeShopId: safeShopId,
+			// fieldMappingOrder NINCS visszaadva külön, csak a form részeként
+			   return {
+				   form,
+				   selectedKeyIndex,
+				   mappingKeys,
+				   mappingValues,
+				   removeMapping,
+				   addMapping,
+				   submit,
+				   activeShopName,
+				   activeShopId: safeShopId,
+				   fieldTypes,
+				   onFieldTypeChange,
 
-		       // UNAS mezőlista
-		       unasAllFields,
-		       unasFieldsLoading,
-		       unasOptions,
-		       groupedOptions,
-		       filterQuery,
-		       groupedOptionsFiltered,
-		       onSelectFilter,
-		       feedOptions,
-		       feedOptionsFiltered,
-		       feedFieldsLoading,
-		       onFeedFilter,
+				   // UNAS mezőlista
+				   unasAllFields,
+				   unasFieldsLoading,
+				   unasOptions,
+				   groupedOptions,
+				   filterQuery,
+				   groupedOptionsFiltered,
+				   onSelectFilter,
+				   feedOptions,
+				   feedOptionsFiltered,
+				   feedFieldsLoading,
+				   onFeedFilter,
 
-		       // képlet UI
-		       pricingTokens,
-		       numberDraft,
-		       used,
-		       addToken,
-		       removeToken,
-		       clearFormula,
-		       addNumberDraft,
-		       isOperator,
-		       displayToken,
-		       pricingInputValue,
-		       pricingPlaceholder,
-		       pricingInputRef,
-		       handleBackspace,
-		       focusInput,
-	       };
+				   // képlet UI
+				   pricingTokens,
+				   numberDraft,
+				   used,
+				   addToken,
+				   removeToken,
+				   clearFormula,
+				   addNumberDraft,
+				   isOperator,
+				   displayToken,
+				   pricingInputValue,
+				   pricingPlaceholder,
+				   pricingInputRef,
+				   handleBackspace,
+				   focusInput,
+			   };
 		},
 	};
 
@@ -818,6 +936,7 @@
 	function tokensToText(tokens) {
 		return tokens.join('');
 	}
+	// ...existing code...
 </script>
 
 <style scoped>
@@ -881,6 +1000,29 @@
 		margin-top: 1rem;
 		font-size: 0.75rem;
 	}
+	/* Field type select and input coloring */
+	.fieldtype-select.view,
+	.fieldtype-input.view {
+		background: none !important;
+	}
+	.fieldtype-select.key,
+	.fieldtype-input.key {
+		background: #e4fde4 !important;
+		border: 1px solid #96ff96 !important;
+	}
+	.fieldtype-select.price,
+	.fieldtype-input.price {
+		background: #e4f0fd !important;
+		border: 1px solid #96cfff !important;
+	}
+	.fieldtype-select.stock,
+	.fieldtype-input.stock {
+		background: #fffbe4 !important;
+		border: 1px solid #ffe996 !important;
+	}
+	.fieldtype-popper .el-select-dropdown__item.selected {
+		font-weight: bold;
+	}
 </style>
 
 <style>
@@ -911,7 +1053,27 @@
 	}
 	.mapping-row.active-key-row .el-select__wrapper {
 		background: #e4fde4 !important;
-		border: 1px solid #96ff96 !important;
+		/* border: 1px solid #96ff96 !important; */
 		transition: background 0.2s;
+	}
+	.mapping-row.active-price-row .el-select__wrapper {
+		background: #e4f0fd !important;
+		/* border: 1px solid #96cfff !important; */
+		transition: background 0.2s;
+	}
+	.mapping-row.active-stock-row .el-select__wrapper {
+		background: #fffbe4 !important;
+		/* border: 1px solid #ffe996 !important; */
+		transition: background 0.2s;
+	}
+
+	.form-actions {
+		flex-wrap: nowrap;
+	}
+	.form-actions .el-form-item__content {
+		margin-left: 0 !important;
+	}
+	.form-actions .el-form-item__content button {
+		flex-grow: 1;
 	}
 </style>

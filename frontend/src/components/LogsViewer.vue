@@ -129,8 +129,8 @@ function filteredChanges(changes) {
 		>
 			<el-table-column type="expand" width="40">
 				<template #default="{ row }">
-					<div class="p-2">
-						<div class="mb-2 text-sm text-gray-600">
+					<div class="p-2 space-y-2">
+						<div class="mb-2 text-sm text-gray-600" style="padding: 1rem 1rem; background: #eee; font-weight: bold;">
 							<span class="mr-3"
 								>Run ID: <code>{{ row.id }}</code></span
 							>
@@ -154,7 +154,30 @@ function filteredChanges(changes) {
 								prop="unasKey"
 								label="Unas kulcs"
 								min-width="140"
-							/>
+							>
+								<template #default="{ row: it }">
+									<el-tooltip
+										:content="it.unasKey"
+										placement="top"
+										effect="dark"
+									>
+										<div
+											style="
+												overflow: hidden;
+												text-overflow: ellipsis;
+												display: -webkit-box;
+												-webkit-line-clamp: 2;
+												-webkit-box-orient: vertical;
+												white-space: normal;
+												word-break: break-all;
+												cursor: pointer;
+											"
+										>
+											{{ it.unasKey }}
+										</div>
+									</el-tooltip>
+								</template>
+							</el-table-column>
 							<el-table-column label="Változások" min-width="380">
 								<template #default="{ row: it }">
 									<div

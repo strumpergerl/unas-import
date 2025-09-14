@@ -2,23 +2,29 @@
 
 // Minimal normalization: field mapping, type conversion, and orderable calculation only
 async function transformData(records, processConfig) {
-	const { fieldMapping, stockThreshold = 1 } = processConfig;
+	const { fieldMapping, stockThreshold = 1, priceFields = {}, stockFields = {} } = processConfig;
 
 	return records.map((record) => {
 		const transformed = {};
-		// 1) Field mapping (except price/stock)
+		// 1) Field mapping (except priceFields.feed / stockFields.feed)
 		for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
+			// Ha ez a mező a priceFields.feed vagy stockFields.feed, kihagyjuk
+			if (srcKey === priceFields.feed || srcKey === stockFields.feed) continue;
 			const dst = String(dstKey || '');
-			if (dst === 'price' || dst === 'stock') continue;
 			transformed[dst] = record[srcKey];
 		}
 
-		// 2) Stock normalization + orderable
-		const stockSrcKey = Object.entries(fieldMapping).find(([, dst]) => {
-			const v = String(dst || '').toLowerCase();
-			return v === 'stock' || v.includes('stock') || v.includes('készlet') || v.includes('quantity') || v === 'qty';
-		})?.[0];
+		// 2) Price mező explicit másolása, ha létezik
+		if (priceFields.feed && record.hasOwnProperty(priceFields.feed)) {
+			transformed[priceFields.feed] = record[priceFields.feed];
+		}
+		// 3) Stock mező explicit másolása, ha létezik
+		if (stockFields.feed && record.hasOwnProperty(stockFields.feed)) {
+			transformed[stockFields.feed] = record[stockFields.feed];
+		}
 
+		// orderable számítása stockFields.feed alapján
+		const stockSrcKey = stockFields.feed;
 		if (stockSrcKey) {
 			const raw = record[stockSrcKey];
 			let feedStock = 0;

@@ -6,7 +6,6 @@ const fs = require('fs');
 const express = require('express');
 
 const apiRouter = require('./api'); // ./api/index.js-t tölti be
-const { scheduleProcesses, scheduleLogPrune } = require('./scheduler');
 
 // Árfolyam frissítő (védetten hívjuk, ha elérhető)
 let rateUpdater = null;
@@ -44,7 +43,7 @@ const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, () => {
   console.log(`[BACKEND] Server fut a ${PORT}-on`);
 
-  // Árfolyamok: indításkor / ütemezve
+  // Árfolyamok: indításkor
   try {
     if (rateUpdater) {
       if (typeof rateUpdater.start === 'function') {
@@ -58,14 +57,6 @@ app.listen(PORT, () => {
     }
   } catch (e) {
     console.error('[BACKEND] rateUpdater hiba:', e?.message || e);
-  }
-
-  // Ütemezők
-  try {
-    if (typeof scheduleProcesses === 'function') scheduleProcesses();
-    if (typeof scheduleLogPrune === 'function') scheduleLogPrune();
-  } catch (e) {
-    console.error('[BACKEND] scheduler hiba:', e?.message || e);
   }
 });
 

@@ -19,6 +19,14 @@ async function loadShopById(shopDocId) {
   const shop = { shopId: shopDocId, ...snap.data() };
 
   const { value: apiKey, varName } = resolveEnvPlaceholder(shop.apiKey);
+  if (varName) {
+    console.log('[SHOPS][DEBUG] env placeholder:', {
+      shopId: shopDocId,
+      envVar: varName,
+      isSet: !!process.env[varName],
+      isEmpty: !process.env[varName]
+    });
+  }
   if (!apiKey) {
     const hint = varName
       ? `Hiányzik az env változó: ${varName}.`

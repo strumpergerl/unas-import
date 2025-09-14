@@ -16,7 +16,7 @@ const dynamicSchedulerFunction = inngest.createFunction(
     async ({ step }) => {
         const now = new Date();
         // Lekérjük az összes aktív process-t
-        const snap = await db.collection("processes").where("enabled", "==", true).get();
+        const snap = await db.collection("processes").get();
         const results = [];
             for (const doc of snap.docs) {
                 const data = doc.data();

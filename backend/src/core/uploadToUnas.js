@@ -554,10 +554,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		const productNode = { Sku: unasSku };
 		if (rec.name != null) productNode.Name = String(rec.name);
-		// if (rec.stock != null) {
-		// 	const qty = Math.max(0, Math.trunc(Number(rec.stock) || 0));
-		// 	productNode.Stocks = { Stock: { Qty: String(qty) } };
-		// }
+
 
 		// Mindig adjuk át az "orderable" mezőt, ha az after objektumban szerepel
 		if (after.orderable !== undefined && after.orderable !== '') {

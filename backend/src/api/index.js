@@ -397,7 +397,9 @@ router.post('/config', async (req, res) => {
 		// 	});
 		// }
 
-		const nowIso = new Date().toISOString();
+
+		const now = new Date();
+		const nowIso = now.toISOString();
 
 		// ne írjuk vissza az azonosító/automatikus mezőket
 		const {
@@ -410,6 +412,19 @@ router.post('/config', async (req, res) => {
 			...data
 		} = p;
 
+		// nextRunAt automatikus számítása frequency alapján
+		let calcNextRunAt = null;
+		if (data.frequency && typeof data.frequency === 'string') {
+			const m = data.frequency.trim().toLowerCase().match(/^([0-9]+)\s*([smhd])$/);
+			if (m) {
+				const n = parseInt(m[1], 10);
+				const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+				if (n > 0 && mult) {
+					calcNextRunAt = new Date(now.getTime() + n * mult).toISOString();
+				}
+			}
+		}
+
 		const snap = await ref.get();
 		const isNew = !snap.exists;
 
@@ -417,7 +432,7 @@ router.post('/config', async (req, res) => {
 			{
 				...data,
 				referenceAt: nowIso, // <- HORGONY: mindig frissítjük
-				nextRunAt: null, // <- kényszerítsük az újraszámítást
+				nextRunAt: calcNextRunAt, // <- automatikus következő futás
 				updatedAt: nowIso,
 				...(isNew ? { createdAt: nowIso } : {}),
 			},

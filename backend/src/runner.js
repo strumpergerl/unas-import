@@ -138,6 +138,14 @@ async function runProcessById(processId) {
 			throw new Error(`Shop not found in Firestore: ${proc.shopId}`);
 		const shop = { shopId: shopSnap.id, ...shopSnap.data() };
 
+		// DEBUG LOG: processId, shopId, shop, apiKey
+		console.log('[RUNNER][DEBUG]', {
+		  processId,
+		  shopId: proc.shopId,
+		  shopDoc: shop,
+		  apiKey: shop.apiKey
+		});
+
 		run.processName = proc.displayName || proc.processId;
 		run.shopId = shop.shopId;
 		run.shopName = shop.name;

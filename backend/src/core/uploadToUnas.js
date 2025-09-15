@@ -266,19 +266,19 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 // --- Segéd: UNAS termék lekérés SKU alapján (diff-hez) ---
 async function fetchProductBySku(bearer, sku) {
 	   // DEBUG: log all parameter names and values
-	//    try {
-	// 	   const paramsDbg = product?.Parameters?.Parameter;
-	// 	   if (paramsDbg) {
-	// 		   const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
-	// 		   console.log('[UNAS][DEBUG] Paraméterek:');
-	// 		   for (const p of arr) {
-	// 			   console.log('  Name:', p?.Name, 'Value:', p?.Value);
-	// 		   }
-	// 	   } else {
-	// 		   console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
-	// 	   }
-	// 	   console.log('[UNAS][DEBUG] Teljes product:', JSON.stringify(product, null, 2));
-	//    } catch (e) { console.log('[UNAS][DEBUG] param log error', e); }
+	   try {
+		   const paramsDbg = product?.Parameters?.Parameter;
+		   if (paramsDbg) {
+			   const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
+			   console.log('[UNAS][DEBUG] Paraméterek:');
+			   for (const p of arr) {
+				   console.log('  Name:', p?.Name, 'Value:', p?.Value);
+			   }
+		   } else {
+			   console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
+		   }
+		   console.log('[UNAS][DEBUG] Teljes product:', JSON.stringify(product, null, 2));
+	   } catch (e) { console.log('[UNAS][DEBUG] param log error', e); }
 	const payload = builder.buildObject({
 		Params: { Sku: sku, ContentType: 'full', LimitNum: 1 },
 	});
@@ -310,13 +310,7 @@ async function fetchProductBySku(bearer, sku) {
 		   if (Object.prototype.hasOwnProperty.call(product, 'Vásárolható, ha nincs Raktáron')) {
 			   orderable = product['Vásárolható, ha nincs Raktáron'];
 		   }
-		//    console.log('[UNAS][DEBUG] fetchProductBySku:', {
-		// 	   sku,
-		// 	   orderable,
-		// 	   productOrderable: product['Vásárolható, ha nincs Raktáron'],
-		// 	   productKeys: Object.keys(product),
-		// 	   product: JSON.stringify(product)
-		//    });
+
 		   const before = {
 			   name: String(product?.Name ?? ''),
 			   stock: Number(firstStock?.Qty ?? 0) || 0,
@@ -534,7 +528,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		// Debug: log what comes from the feed and from the UNAS index
-		console.log('[UNAS][DEBUG][orderable feed]', {
+		console.log('[UNAS][DEBUG][közös feed és UNAS index]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
 			orderable: orderable,
 			feedRaw: rec

@@ -3,7 +3,6 @@ const { serve } = require('inngest/express');
 const { runProcessById, pruneOldRuns } = require("./runner");
 const { db } = require("./db/firestore");
 
-console.log("[DEBUG] SHOPX_API_KEY is set:", !!process.env.SHOP3_API_KEY);
 const inngest = new Inngest({
     id: "unas-import", // vagy appId, de id legyen!
     name: "unas-import",

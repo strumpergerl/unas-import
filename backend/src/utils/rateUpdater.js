@@ -32,10 +32,10 @@ async function updateRates(retry = true) {
 			`[rateUpdater] Árfolyamok frissítve (${lastUpdated.toISOString()})`
 		);
 
-		// opcionális süti-beállítás (ha van global.res)
+		// süti-beállítás (ha van global.res)
 		if (typeof global !== 'undefined' && global.res && global.res.cookie) {
 			global.res.cookie('exchangeRates', JSON.stringify(rates), {
-				maxAge: 6 * 60 * 60 * 1000,
+				maxAge: 6 * 60 * 60 * 1000, 
 				httpOnly: true,
 				sameSite: 'strict',
 			});
@@ -57,9 +57,9 @@ async function updateRates(retry = true) {
 updateRates();
 
 // 1 óránként frissítjük az árfolyamokat
-// ToDo: ideiglenesen 3 óra 
+// ToDo: ideiglenesen 6 óra
 cron.schedule(
-	'0 */3 * * *',
+	'0 */6 * * *',
 	() => {
 		console.log('[rateUpdater] Árfolyam frissítés ütemezve');
 		updateRates();

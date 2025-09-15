@@ -254,22 +254,55 @@ async function runProcessById(processId) {
 		   run.stages.uploadMs = t6 - t5;
 
 		   // --- EMAIL NOTIFICATION ---
-		   try {
-			   const procName = run.processName || processId;
-			   if (!run.error) {
-				   // Sikeres szinkron
-				   const subject = `Szinkron lefutott - ${procName}`;
-				   const body = `Módosított termékek száma: ${run.counts.modified}\nHibás termékek száma: ${run.counts.failed}`;
-				   await sendNotification(subject, body);
-			   } else {
-				   // Sikertelen szinkron
-				   const subject = `Szinkron hiba - ${procName}`;
-				   const body = `Hiba oka: ${run.error}`;
-				   await sendNotification(subject, body);
-			   }
-		   } catch (e) {
-			   console.warn('[RUNNER] Email notification error:', e?.message || e);
-		   }
+					 try {
+							 const procName = run.processName || processId;
+							 const shopName = run.shopName || '';
+							 const started = run.startedAt ? new Date(run.startedAt).toLocaleString('hu-HU') : '';
+							 const finished = run.finishedAt ? new Date(run.finishedAt).toLocaleString('hu-HU') : '';
+							 const duration = run.durationMs ? `${Math.floor(run.durationMs/60000)} perc ${Math.floor((run.durationMs%60000)/1000)} mp` : '';
+							 if (!run.error) {
+									 // Sikeres szinkron
+									 const subject = `✅ Szinkron sikeres - ${procName}`;
+									 const body = `
+<div style="font-family:Arial,sans-serif;">
+	<h2 style="color:#2e7d32;">Szinkron sikeresen lefutott</h2>
+	<table style="border-collapse:collapse;">
+		<tr><td><b>Shop:</b></td><td>${shopName}</td></tr>
+		<tr><td><b>Folyamat:</b></td><td>${procName}</td></tr>
+		<tr><td><b>Indult:</b></td><td>${started}</td></tr>
+		<tr><td><b>Befejeződött:</b></td><td>${finished}</td></tr>
+		<tr><td><b>Időtartam:</b></td><td>${duration}</td></tr>
+		<tr><td><b>Módosított termékek:</b></td><td style="color:#1565c0;">${run.counts.modified}</td></tr>
+		<tr><td><b>Hibás termékek:</b></td><td style="color:#c62828;">${run.counts.failed}</td></tr>
+	</table>
+	<br>
+	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
+</div>
+`;
+									 await sendNotification(subject, body);
+							 } else {
+									 // Sikertelen szinkron
+									 const subject = `❌ Szinkron hiba - ${procName}`;
+									 const body = `
+<div style="font-family:Arial,sans-serif;">
+	<h2 style="color:#c62828;">Szinkron hiba történt</h2>
+	<table style="border-collapse:collapse;">
+		<tr><td><b>Shop:</b></td><td>${shopName}</td></tr>
+		<tr><td><b>Folyamat:</b></td><td>${procName}</td></tr>
+		<tr><td><b>Indult:</b></td><td>${started}</td></tr>
+		<tr><td><b>Befejeződött:</b></td><td>${finished}</td></tr>
+		<tr><td><b>Időtartam:</b></td><td>${duration}</td></tr>
+		<tr><td><b>Hiba oka:</b></td><td style="color:#c62828;">${run.error}</td></tr>
+	</table>
+	<br>
+	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
+</div>
+`;
+									 await sendNotification(subject, body);
+							 }
+					 } catch (e) {
+							 console.warn('[RUNNER] Email notification error:', e?.message || e);
+					 }
 	} catch (err) {
 		run.error = err?.message || String(err);
 		try {

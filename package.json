@@ -13,7 +13,7 @@
     "dev:backend": "cross-env NODE_ENV=development npm --workspace=backend run dev",
     "dev:frontend": "cross-env NODE_ENV=development npm --workspace=frontend run dev",
     "dev:tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "dev": "concurrently --names \"TUNNEL,BACKEND,FRONTEND,INGEST\" -c \"yellow,blue,green,magenta\" \"npm run dev:tunnel\" \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:inngest\"",
+    "dev": "concurrently --names \"TUNNEL,BACKEND,FRONTEND,INNGEST\" -c \"yellow,blue,green,magenta\" \"npm run dev:tunnel\" \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:inngest\"",
     "devNoPm2": "cross-env NODE_ENV=development concurrently --names \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build:frontend": "cross-env NODE_ENV=production npm --workspace=frontend run build",
     "start:backend": "cross-env NODE_ENV=production npm --workspace=backend run start",

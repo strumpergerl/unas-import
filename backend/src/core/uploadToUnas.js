@@ -265,24 +265,12 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 
 // --- Segéd: UNAS termék lekérés SKU alapján (diff-hez) ---
 async function fetchProductBySku(bearer, sku) {
-	   // DEBUG: log all parameter names and values
-	   try {
-		   const paramsDbg = product?.Parameters?.Parameter;
-		   if (paramsDbg) {
-			   const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
-			   console.log('[UNAS][DEBUG] Paraméterek:');
-			   for (const p of arr) {
-				   console.log('  Name:', p?.Name, 'Value:', p?.Value);
-			   }
-		   } else {
-			   console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
-		   }
-		   console.log('[UNAS][DEBUG] Teljes product:', JSON.stringify(product, null, 2));
-	   } catch (e) { console.log('[UNAS][DEBUG] param log error', e); }
+	
 	const payload = builder.buildObject({
 		Params: { Sku: sku, ContentType: 'full', LimitNum: 1 },
 	});
 	const resp = await postXml('getProduct', payload, bearer);
+
 	if (resp.status < 200 || resp.status >= 300)
 		return { exists: false, product: null };
 	try {
@@ -293,6 +281,21 @@ async function fetchProductBySku(bearer, sku) {
 			parsed?.Product ||
 			null;
 		if (!product) return { exists: false, product: null };
+
+		// DEBUG: log all parameter names and values
+	try {
+		const paramsDbg = product?.Parameters?.Parameter;
+		if (paramsDbg) {
+			const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
+			console.log('[UNAS][DEBUG] Paraméterek:');
+			for (const p of arr) {
+				console.log('  Name:', p?.Name, 'Value:', p?.Value);
+			}
+		} else {
+			console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
+		}
+		console.log('[UNAS][DEBUG] Teljes product:', JSON.stringify(product, null, 2));
+	} catch (e) { console.log('[UNAS][DEBUG] param log error', e); }
 
 		const stocks = product?.Stocks?.Stock;
 		const stockArr = Array.isArray(stocks) ? stocks : stocks ? [stocks] : [];
@@ -305,10 +308,10 @@ async function fetchProductBySku(bearer, sku) {
 			{};
 
 		   // --- orderable mező kinyerése ---
-		   // UNAS API-ban pontosan: 'Vásárolható, ha nincs Raktáron'
+		   // UNAS API-ban: Stocks.Status.Empty
 		   let orderable = null;
-		   if (Object.prototype.hasOwnProperty.call(product, 'Vásárolható, ha nincs Raktáron')) {
-			   orderable = product['Vásárolható, ha nincs Raktáron'];
+		   if (product?.Stocks?.Status?.Empty !== undefined) {
+			   orderable = product.Stocks.Status.Empty;
 		   }
 
 		   const before = {
@@ -333,20 +336,25 @@ function diffFields(before, after) {
 		'price_gross',
 		'orderable',
 	];
-	for (const f of fields) {
-		let b = before?.[f];
-		let a = after?.[f];
+	   for (const f of fields) {
+		   let b = before?.[f];
+		   let a = after?.[f];
 
-		// Always compare as strings for consistency (null/undefined become empty string)
-		const bStr = b === undefined || b === null ? '' : String(b);
-		const aStr = a === undefined || a === null ? '' : String(a);
-		if (bStr !== aStr) {
-			changes[f] = {
-				from: b === undefined ? null : b,
-				to: a === undefined ? null : a
-			};
-		}
-	}
+		   // Egységes típuskezelés orderable mezőnél
+		   if (f === 'orderable') {
+			   b = b === undefined || b === null ? '' : String(b).trim();
+			   a = a === undefined || a === null ? '' : String(a).trim();
+		   }
+		   // Egyéb mezőknél marad a stringes összehasonlítás
+		   const bStr = b === undefined || b === null ? '' : String(b);
+		   const aStr = a === undefined || a === null ? '' : String(a);
+		   if (bStr !== aStr) {
+			   changes[f] = {
+				   from: b === undefined ? null : b,
+				   to: a === undefined ? null : a
+			   };
+		   }
+	   }
 	return changes;
 }
 
@@ -354,7 +362,6 @@ function diffFields(before, after) {
    Fő feltöltő folyamat
    ============================ */
 async function uploadToUnas(records, processConfig, shopConfig) {
-	// console.log('[DEBUG] Első rekord kulcsai:', Object.keys(records[0] || {}));
 	ensureCacheDir();
 	const { dryRun = false, shopId, keyFields } = processConfig;
 	const shop = shopConfig || (shopId ? await loadShopById(shopId) : null);
@@ -551,13 +558,31 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 
 		// Mindig adjuk át az "orderable" mezőt, ha az after objektumban szerepel
+		// if (after.orderable !== undefined && after.orderable !== '') {
+		// 	productNode.Parameters = [
+		// 		{
+		// 			Name: 'Vásárolható, ha nincs Raktáron',
+		// 			Value: after.orderable,
+		// 		},
+		// 	];
+		// }
+		// Az "orderable" mezőt a Stocks.Status.Empty mezőbe tesszük az UNAS XML-ben, és a Qty mezőt is beállítjuk
 		if (after.orderable !== undefined && after.orderable !== '') {
-			productNode.Parameters = [
-				{
-					Name: 'Vásárolható, ha nincs Raktáron',
-					Value: after.orderable,
-				},
-			];
+			let qtyValue = 0;
+			if (rec.hasOwnProperty('stock') && Number.isFinite(Number(rec.stock))) {
+				qtyValue = Number(rec.stock);
+			} else if (rec.hasOwnProperty('qty') && Number.isFinite(Number(rec.qty))) {
+				qtyValue = Number(rec.qty);
+			}
+			productNode.Stocks = {
+				Stock: {
+					Qty: qtyValue,
+					Status: {
+						Active: '1',
+						Empty: after.orderable
+					}
+				}
+			};
 		}
 		productNode.Prices = {
 			Price: {

@@ -203,7 +203,6 @@ async function fetchProductDbHeaders({ apiKey, paramsXml }) {
 module.exports = {
 	// a router ezt hívja → csak apiKey kell
 	fetchProductDbHeaders,
-	// opcionális export, ha később kell
 	getBearerToken: getTokenCached,
 	ensureUnasShopId: async () => null,
 };

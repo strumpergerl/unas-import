@@ -57,9 +57,9 @@ async function updateRates(retry = true) {
 updateRates();
 
 // 1 óránként frissítjük az árfolyamokat
-// ToDo: ideiglenesen 6 óra
+// ToDo: ideiglenesen 1 óra
 cron.schedule(
-	'0 */6 * * *',
+	'0 */1 * * *',
 	() => {
 		console.log('[rateUpdater] Árfolyam frissítés ütemezve');
 		updateRates();

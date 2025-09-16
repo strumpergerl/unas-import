@@ -92,17 +92,68 @@
 			<el-main style="text-align: center; padding-top: 5rem">
 				<h2>Nem vagy bejelentkezve</h2>
 				<p>Kérlek jelentkezz be az admin felülethez.</p>
-				<el-button size="small" type="primary" @click="login"
-					>Bejelentkezés</el-button
-				>
+
+				<el-button @click="loginWithGoogle" class="mt-10">Belépés Google-lel</el-button>
+
+				<!-- Ha NINCS bejelentkezve: e-mail/jelszó űrlap -->
+				<el-card class=" max-w-md m-auto mt-10">
+					<template #header>
+						<div class="flex items-center justify-between">
+							<span>{{
+								mode === 'login' ? 'Bejelentkezés' : 'Regisztráció'
+							}}</span>
+							<el-button link @click="toggleMode">
+								{{
+									mode === 'login'
+										? 'Nincs még fiókod? Regisztrálj'
+										: 'Van fiókod? Jelentkezz be'
+								}}
+							</el-button>
+						</div>
+					</template>
+
+					<el-form
+						:model="form"
+						:rules="rules"
+						ref="formRef"
+						label-width="120px"
+						@submit.prevent
+					>
+						<el-form-item label="E-mail" prop="email">
+							<el-input v-model="form.email" autocomplete="email" />
+						</el-form-item>
+
+						<el-form-item label="Jelszó" prop="password">
+							<el-input
+								v-model="form.password"
+								type="password"
+								autocomplete="current-password"
+								show-password
+							/>
+						</el-form-item>
+
+						<el-form-item style="margin-top: 2rem;">
+							<el-button type="primary" :loading="loading" @click="submitEmail">
+								{{ mode === 'login' ? 'Belépés' : 'Regisztráció' }}
+							</el-button>
+						</el-form-item>
+					</el-form>
+				</el-card>
 			</el-main>
 		</template>
 
 		<!-- Auth állapot még nem ismert -->
 		<template v-else>
-			<el-main style="display: flex; align-items: center; justify-content: center; height: 60vh;">
-				<div style="text-align: center;">
-					<el-icon class="is-loading" style="font-size: 48px; color: #409EFF;">
+			<el-main
+				style="
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					height: 60vh;
+				"
+			>
+				<div style="text-align: center">
+					<el-icon class="is-loading" style="font-size: 48px; color: #409eff">
 						<Loading />
 					</el-icon>
 				</div>
@@ -124,6 +175,8 @@
 		GoogleAuthProvider,
 		signInWithPopup,
 		onAuthStateChanged,
+		createUserWithEmailAndPassword,
+		signInWithEmailAndPassword,
 		signOut,
 	} from 'firebase/auth';
 	import {
@@ -165,7 +218,11 @@
 			const loadConfig = async (force = false) => {
 				if (!user.value) return;
 				const now = Date.now();
-				if (!force && configCache && (now - configCacheTs < CONFIG_CACHE_TTL_MS)) {
+				if (
+					!force &&
+					configCache &&
+					now - configCacheTs < CONFIG_CACHE_TTL_MS
+				) {
 					shops.value = configCache.shops;
 					processes.value = configCache.processes;
 					if (!selectedShop.value && shops.value.length) {
@@ -186,7 +243,7 @@
 			const loadLogs = async (force = false) => {
 				if (!user.value) return;
 				const now = Date.now();
-				if (!force && logsCache && (now - logsCacheTs < LOGS_CACHE_TTL_MS)) {
+				if (!force && logsCache && now - logsCacheTs < LOGS_CACHE_TTL_MS) {
 					logs.value = logsCache;
 					return;
 				}
@@ -312,49 +369,103 @@
 				fsUnsubs.push(unsubProc);
 			}
 
-			// Auth állapot figyelése: ha be van jelentkezve, indul a Firestore stream; különben API fallback
-			onAuthStateChanged(auth, (u) => {
-				user.value = u;
-				stopFs();
-				if (u) {
-					startFs();
-				} else {
-					// Fallback: marad az eddigi API olvasás
-					loadConfig();
-				}
-			});
-
-			// Opcionális gyors login gombhoz ezek a metódusok rendelkezésre állnak:
-			async function login() {
-				await signInWithPopup(auth, new GoogleAuthProvider());
-			}
-			async function logout() {
-				await signOut(auth);
-			}
-
 			onMounted(() => {
-				if (user.value) {
-					loadConfig();
-					loadLogs();
-				}
-				// setInterval(() => {
-				// 	if (user.value) loadLogs();
-				// }, 100000); // 100s
-				const un = onAuthStateChanged(auth, (u) => {
+				const unAuth = onAuthStateChanged(auth, async (u) => {
 					user.value = u;
-					ready.value = true; // <-- csak ekkor engedjük a UI-t dönteni
+					ready.value = true;
+
+					stopFs(); // előző FS streamek leállítása
 					if (u) {
-						loadConfig();
-						loadLogs();
+						startFs(); // FS stream indítása csak belépve
+						await loadConfig(true);
+						await loadLogs(true);
+					} else {
+						await loadConfig(true); // kijelentkezve API fallback
 					}
 				});
+				// (opcionálisan: onBeforeUnmount(() => unAuth && unAuth()))
 			});
 
-			async function login() {
-				await signInWithPopup(auth, new GoogleAuthProvider());
-			}
-			async function logout() {
-				await signOut(auth);
+			// Google login
+			const loginWithGoogle = async () => {
+				try {
+					const provider = new GoogleAuthProvider();
+					await signInWithPopup(auth, provider);
+					ElMessage.success('Sikeres bejelentkezés (Google)');
+				} catch (e) {
+					ElMessage.error(firebaseErr(e));
+				}
+			};
+
+			// E-mail/jelszó login
+			const mode = ref('login'); // 'login' | 'register'
+			const loading = ref(false);
+			const formRef = ref();
+			const form = ref({ email: '', password: '' });
+
+			const rules = {
+				email: [
+					{
+						required: true,
+						message: 'Add meg az e-mail címed',
+						trigger: 'blur',
+					},
+				],
+				password: [
+					{ required: true, message: 'Add meg a jelszót', trigger: 'blur' },
+				],
+			};
+
+			const toggleMode = () => {
+				mode.value = mode.value === 'login' ? 'register' : 'login';
+			};
+
+			const submitEmail = async () => {
+				try {
+					await formRef.value?.validate();
+					loading.value = true;
+					if (mode.value === 'login') {
+						await signInWithEmailAndPassword(
+							auth,
+							form.value.email,
+							form.value.password
+						);
+						ElMessage.success('Sikeres bejelentkezés');
+					} else {
+						const cred = await createUserWithEmailAndPassword(
+							auth,
+							form.value.email,
+							form.value.password
+						);
+						ElMessage.success('Sikeres regisztráció');
+					}
+				} catch (e) {
+					ElMessage.error(firebaseErr(e));
+				} finally {
+					loading.value = false;
+				}
+			};
+
+			const logout = async () => {
+				try {
+					await signOut(auth);
+					ElMessage.success('Kijelentkezve');
+				} catch (e) {
+					ElMessage.error(firebaseErr(e));
+				}
+			};
+
+			function firebaseErr(e) {
+				const code = e?.code || '';
+				const map = {
+					'auth/email-already-in-use': 'Ezzel az e-mail címmel már van fiók.',
+					'auth/invalid-email': 'Érvénytelen e-mail cím.',
+					'auth/weak-password': 'A jelszó túl gyenge.',
+					'auth/user-not-found': 'Nincs ilyen felhasználó.',
+					'auth/wrong-password': 'Hibás jelszó.',
+					'auth/popup-closed-by-user': 'A bejelentkezési ablak bezárult.',
+				};
+				return map[code] || e?.message || 'Ismeretlen hiba';
 			}
 
 			return {
@@ -370,9 +481,16 @@
 				handleDelete,
 				loadLogs,
 				user,
-				login,
+				loginWithGoogle,
 				logout,
 				ready,
+				mode,
+				loading,
+				formRef,
+				form,
+				rules,
+				toggleMode,
+				submitEmail,
 			};
 		},
 	};
@@ -416,5 +534,33 @@
 	}
 	.process-modal {
 		max-width: 1000px;
+	}
+	.max-w-md {
+		max-width: 520px;
+	}
+	.m-auto {
+		margin-left: auto;
+		margin-right: auto;
+	}
+	.mt-10 {
+		margin-top: 2.5rem;
+	}
+	.flex {
+		display: flex;
+	}
+	.items-center {
+		align-items: center;
+	}
+	.justify-between {
+		justify-content: space-between;
+	}
+	.gap-2 {
+		gap: 0.5rem;
+	}
+	.font-semibold {
+		font-weight: 600;
+	}
+	.text-lg {
+		font-size: 1.125rem;
 	}
 </style>

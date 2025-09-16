@@ -61,9 +61,9 @@ function filteredChanges(changes) {
 	}
 
 	function rowStatus(it) {
-		if (it.error) return { label: 'Fail', type: 'danger' };
-		if (hasChanges(it)) return { label: 'Modify', type: 'success' };
-		return { label: 'Skip', type: 'warning' };
+		if (it.error) return { label: 'Hibás', type: 'danger' };
+		if (hasChanges(it)) return { label: 'Változott', type: 'success' };
+		return { label: 'Nem változott', type: 'warning' };
 	}
 
 	onAuthStateChanged(auth, (u) => {
@@ -202,7 +202,7 @@ function filteredChanges(changes) {
 										</div>
 									</div>
 									<div v-else class="text-xs text-gray-500 italic">
-										Nincs változás (érték azonos maradt).
+										Nincs változás
 									</div>
 								</template>
 							</el-table-column>
@@ -240,21 +240,21 @@ function filteredChanges(changes) {
 					row.counts?.output ?? row.counts?.input ?? 0
 				}}</template>
 			</el-table-column>
-			<el-table-column label="Modify" width="90" align="center">
+			<el-table-column label="Változott" width="90" align="center">
 				<template #default="{ row }">
 					<el-tag type="success">{{
 						row.items?.filter((it) => !it.error && hasChanges(it)).length || 0
 					}}</el-tag>
 				</template>
 			</el-table-column>
-			<el-table-column label="Skip" width="90" align="center">
+			<el-table-column label="Nem változott" width="100" align="center">
 				<template #default="{ row }">
 					<el-tag type="warning">{{
 						row.items?.filter((it) => !it.error && !hasChanges(it)).length || 0
 					}}</el-tag>
 				</template>
 			</el-table-column>
-			<el-table-column label="Fail" width="90" align="center">
+			<el-table-column label="Hibás" width="90" align="center">
 				<template #default="{ row }">
 					<el-tag type="danger">{{
 						row.items?.filter((it) => it.error).length || 0

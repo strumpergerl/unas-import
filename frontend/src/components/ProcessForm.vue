@@ -319,7 +319,7 @@
 				<InfoFilled />
 			</el-icon>
 			Itt tudod összerendelni a feed mezőit az UNAS mezőkkel. A
-			<el-icon style="vertical-align: middle"><Lock /></el-icon> gombbal
+			<strong><el-icon style="vertical-align: middle"><Lock /></el-icon> Kulcs</strong> selecttel
 			jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
 		</div>
 
@@ -1049,7 +1049,8 @@
 		display: flex;
 		gap: 1rem;
 		justify-content: space-between;
-		width: auto !important;
+		margin: 0 !important;
+		/* width: auto !important; */
 	}
 	.mapping-row.active-key-row .el-select__wrapper {
 		background: #e4fde4 !important;

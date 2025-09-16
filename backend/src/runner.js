@@ -23,7 +23,7 @@ async function pruneOldRuns(maxAgeDays = 7) {
 			.collection('runs')
 			.where('finishedAtTs', '<', cutoffTs)
 			.orderBy('finishedAtTs', 'asc')
-			.limit(25) 
+			.limit(25)
 			.get();
 
 		if (snap.empty) break;
@@ -140,7 +140,11 @@ async function runProcessById(processId) {
 
 		let shop = { shopId: shopSnap.id, ...shopSnap.data() };
 		// apiKey placeholder feloldása, ha szükséges
-		if (typeof shop.apiKey === 'string' && shop.apiKey.startsWith('${') && shop.apiKey.endsWith('}')) {
+		if (
+			typeof shop.apiKey === 'string' &&
+			shop.apiKey.startsWith('${') &&
+			shop.apiKey.endsWith('}')
+		) {
 			const envVar = shop.apiKey.slice(2, -1);
 			resolvedApiKey = process.env[envVar] || null;
 			if (resolvedApiKey) {
@@ -152,9 +156,12 @@ async function runProcessById(processId) {
 
 		// DEBUG LOG: processId, shopId, shop, apiKey resolved-e
 		console.log('[RUNNER][DEBUG]', {
-		  processId,
-		  shopId: proc.shopId,
-		  shopDoc: { ...shop, apiKey: resolvedApiKey ? '[RESOLVED]' : '[NOT RESOLVED]' },
+			processId,
+			shopId: proc.shopId,
+			shopDoc: {
+				...shop,
+				apiKey: resolvedApiKey ? '[RESOLVED]' : '[NOT RESOLVED]',
+			},
 		});
 
 		run.processName = proc.displayName || proc.processId;
@@ -178,94 +185,102 @@ async function runProcessById(processId) {
 		run.counts.input = Array.isArray(recs) ? recs.length : 0;
 		run.counts.output = Array.isArray(trans) ? trans.length : 0;
 
-		   // 4) Upload (ha nem dryRun)
-		   let stats = {
-			   modified: [],
-			   skippedNoKey: [],
-			   skippedNotFound: [],
-			   failed: [],
-			   dryRun: true,
-		   };
+		// 4) Upload (ha nem dryRun)
+		let stats = {
+			modified: [],
+			skippedNoKey: [],
+			skippedNotFound: [],
+			failed: [],
+			dryRun: true,
+		};
 
-		   const t5 = Date.now();
-		   if (!proc.dryRun) {
-			   stats = await uploadToUnas(trans, proc, shop);
-		   }
-		   const t6 = Date.now();
+		const t5 = Date.now();
+		if (!proc.dryRun) {
+			stats = await uploadToUnas(trans, proc, shop);
+		}
+		const t6 = Date.now();
 
-		   run.counts.modified = stats.modified?.length || 0;
-		   run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
-		   run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
-		   run.counts.failed = stats.failed?.length || 0;
+		run.counts.modified = stats.modified?.length || 0;
+		run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
+		run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
+		run.counts.failed = stats.failed?.length || 0;
 
-		   // Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
-		   for (const m of stats.modified || []) {
-			   const hasChange = m.changes && Object.keys(m.changes).length > 0;
-			   run.items.push({
-				   key: m.key ?? null,
-				   sku: m.sku ?? null,
-				   unasKey: m.unasKey ?? null, 
-				   action: hasChange ? 'modify' : 'skip',
-				   changes: m.changes || {},
-				   before: m.before ?? null,
-				   after: m.after ?? null,
-			   });
-		   }
-		   for (const s of stats.skippedNoKey || []) {
-			   run.items.push({
-				   key: s.key ?? null,
-				   sku: null,
-				   unasKey: s.unasKey ?? null,
-				   action: 'skip',
-				   changes: {},
-				   before: null,
-				   after: null,
-				   error: s.reason || 'No key',
-			   });
-		   }
-		   for (const s of stats.skippedNotFound || []) {
-			   run.items.push({
-				   key: s.key ?? null,
-				   sku: null,
-				   unasKey: s.unasKey ?? null, 
-				   action: 'skip',
-				   changes: {},
-				   before: null,
-				   after: null,
-				   error: s.reason || 'Not found',
-			   });
-		   }
-		   for (const f of stats.failed || []) {
-			   run.items.push({
-				   key: f.key ?? null,
-				   sku: f.sku ?? null,
-				   unasKey: f.unasKey ?? null, 
-				   action: 'fail',
-				   changes: {},
-				   before: null,
-				   after: null,
-				   error: f.error || f.statusText || 'Failed',
-			   });
-		   }
+		// Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
+		for (const m of stats.modified || []) {
+			const hasChange = m.changes && Object.keys(m.changes).length > 0;
+			run.items.push({
+				key: m.key ?? null,
+				sku: m.sku ?? null,
+				unasKey: m.unasKey ?? null,
+				action: hasChange ? 'modify' : 'skip',
+				changes: m.changes || {},
+				before: m.before ?? null,
+				after: m.after ?? null,
+			});
+		}
+		for (const s of stats.skippedNoKey || []) {
+			run.items.push({
+				key: s.key ?? null,
+				sku: null,
+				unasKey: s.unasKey ?? null,
+				action: 'skip',
+				changes: {},
+				before: null,
+				after: null,
+				error: s.reason || 'No key',
+			});
+		}
+		for (const s of stats.skippedNotFound || []) {
+			run.items.push({
+				key: s.key ?? null,
+				sku: null,
+				unasKey: s.unasKey ?? null,
+				action: 'skip',
+				changes: {},
+				before: null,
+				after: null,
+				error: s.reason || 'Not found',
+			});
+		}
+		for (const f of stats.failed || []) {
+			run.items.push({
+				key: f.key ?? null,
+				sku: f.sku ?? null,
+				unasKey: f.unasKey ?? null,
+				action: 'fail',
+				changes: {},
+				before: null,
+				after: null,
+				error: f.error || f.statusText || 'Failed',
+			});
+		}
 
-		   run.stages.downloadMs = t2 - t1;
-		   run.stages.parseMs = t3 - t2;
-		   run.stages.transformMs = t4 - t3;
-		   run.stages.uploadMs = t6 - t5;
+		run.stages.downloadMs = t2 - t1;
+		run.stages.parseMs = t3 - t2;
+		run.stages.transformMs = t4 - t3;
+		run.stages.uploadMs = t6 - t5;
 
-		   // --- EMAIL NOTIFICATION ---
-					 try {
-							 const procName = run.processName || processId;
-							 const shopName = run.shopName || '';
-							 const started = run.startedAt ? new Date(run.startedAt).toLocaleString('hu-HU') : '';
-							 const finished = run.finishedAt ? new Date(run.finishedAt).toLocaleString('hu-HU') : '';
-							 const duration = run.durationMs ? `${Math.floor(run.durationMs/60000)} perc ${Math.floor((run.durationMs%60000)/1000)} mp` : '';
-							 if (!run.error) {
-									 // Sikeres szinkron
-									 const subject = `✅ Szinkron sikeres - ${procName}`;
-									 const body = `
+		// --- EMAIL NOTIFICATION ---
+		try {
+			const procName = run.processName || processId;
+			const shopName = run.shopName || '';
+			const started = run.startedAt
+				? new Date(run.startedAt).toLocaleString('hu-HU')
+				: '';
+			const finished = run.finishedAt
+				? new Date(run.finishedAt).toLocaleString('hu-HU')
+				: '';
+			const duration = run.durationMs
+				? `${Math.floor(run.durationMs / 60000)} perc ${Math.floor(
+						(run.durationMs % 60000) / 1000
+				  )} mp`
+				: '';
+			if (run.counts.failed > 0) {
+				// Küldjünk emailt, ha van hibás tétel
+				const subject = `⚠️ Hibás tételek a szinkronban - ${procName}`;
+				const body = `
 <div style="font-family:Arial,sans-serif;">
-	<h2 style="color:#2e7d32;">Szinkron sikeresen lefutott</h2>
+	<h2 style="color:#c62828;">Szinkron lefutott, de voltak hibás tételek</h2>
 	<table style="border-collapse:collapse;">
 		<tr><td><b>Shop:</b></td><td>${shopName}</td></tr>
 		<tr><td><b>Folyamat:</b></td><td>${procName}</td></tr>
@@ -279,11 +294,11 @@ async function runProcessById(processId) {
 	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
 </div>
 `;
-									 await sendNotification(subject, body);
-							 } else {
-									 // Sikertelen szinkron
-									 const subject = `❌ Szinkron hiba - ${procName}`;
-									 const body = `
+				await sendNotification(subject, body);
+			} else if (run.error) {
+				// Sikertelen szinkron (általános hiba)
+				const subject = `❌ Szinkron hiba - ${procName}`;
+				const body = `
 <div style="font-family:Arial,sans-serif;">
 	<h2 style="color:#c62828;">Szinkron hiba történt</h2>
 	<table style="border-collapse:collapse;">
@@ -298,11 +313,11 @@ async function runProcessById(processId) {
 	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
 </div>
 `;
-									 await sendNotification(subject, body);
-							 }
-					 } catch (e) {
-							 console.warn('[RUNNER] Email notification error:', e?.message || e);
-					 }
+				await sendNotification(subject, body);
+			}
+		} catch (e) {
+			console.warn('[RUNNER] Email notification error:', e?.message || e);
+		}
 	} catch (err) {
 		run.error = err?.message || String(err);
 		try {

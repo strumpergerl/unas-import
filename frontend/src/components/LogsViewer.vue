@@ -181,7 +181,7 @@ function filteredChanges(changes) {
 							<el-table-column label="Változások" min-width="380">
 								<template #default="{ row: it }">
 									<div
-										v-if="rowStatus(it).label === 'Modify' && hasChanges(it)"
+										v-if="rowStatus(it).label === 'Változott' && hasChanges(it)"
 										class="space-y-1"
 									>
 										<div

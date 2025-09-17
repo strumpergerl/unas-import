@@ -141,43 +141,14 @@ function filteredChanges(changes) {
 
 						<el-table :data="row.items" border size="small" row-key="sku">
 							<el-table-column label="#" type="index" width="50" />
-							<el-table-column label="Státusz" width="90">
+							<el-table-column label="Státusz" width="150">
 								<template #default="{ row: it }">
 									<el-tag :type="rowStatus(it).type">{{
 										rowStatus(it).label
 									}}</el-tag>
 								</template>
 							</el-table-column>
-							<el-table-column prop="sku" label="SKU" min-width="140" />
-							<el-table-column prop="key" label="Feed kulcs" min-width="160" />
-							<el-table-column
-								prop="unasKey"
-								label="Unas kulcs"
-								min-width="140"
-							>
-								<template #default="{ row: it }">
-									<el-tooltip
-										:content="it.unasKey"
-										placement="top"
-										effect="dark"
-									>
-										<div
-											style="
-												overflow: hidden;
-												text-overflow: ellipsis;
-												display: -webkit-box;
-												-webkit-line-clamp: 2;
-												-webkit-box-orient: vertical;
-												white-space: normal;
-												word-break: break-all;
-												cursor: pointer;
-											"
-										>
-											{{ it.unasKey }}
-										</div>
-									</el-tooltip>
-								</template>
-							</el-table-column>
+							<el-table-column prop="sku" label="SKU" min-width="200" />
 							<el-table-column label="Változások" min-width="380">
 								<template #default="{ row: it }">
 									<div

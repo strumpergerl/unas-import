@@ -48,14 +48,37 @@ async function addRun(run) {
 	const finishedAtTs =
 		run.finishedAtTs || (run.finishedAt ? toTs(run.finishedAt) : null);
 
+	const toProjected = (it) => ({
+		sku: it?.sku ?? null,
+		action: it?.action ?? null,
+		changes: (it && typeof it.changes === 'object' && it.changes !== null) ? it.changes : {},
+		error: it?.error ?? undefined
+	});
+
+	const itemsProjected = Array.isArray(run.items) ? run.items.map(toProjected) : [];
+
 	const payload = {
 		...run,
+		items: itemsProjected, // ⬅️ csak sku/action/changes
 		startedAtTs,
 		...(finishedAtTs ? { finishedAtTs } : {}),
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
 	};
 
+	// Debug: mentendő adat mérete és tartalma
 	try {
+		const runSize = JSON.stringify(run).length;
+		console.log(`[RUNS] Mentés előtt: run méret = ${runSize} byte, items = ${run.items.length}`);
+		if (run.items.length > 0) {
+			for (let i = 0; i < Math.min(3, run.items.length); i++) {
+				console.log(`[RUNS] Item[${i}] teljes adat:`, JSON.stringify({
+					sku: run.items[i].sku,
+					action: run.items[i].action,
+					changes: run.items[i].changes,
+					error: run.items[i].error
+				}, null, 2));
+			}
+		}
 		await ref.set(payload, { merge: false });
 		console.log(`[RUNS] Mentve: runs/${docId}`);
 	} catch (e) {
@@ -205,55 +228,26 @@ async function runProcessById(processId) {
 		run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
 		run.counts.failed = stats.failed?.length || 0;
 
-		// Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
-		for (const m of stats.modified || []) {
-			const hasChange = m.changes && Object.keys(m.changes).length > 0;
-			run.items.push({
-				key: m.key ?? null,
-				sku: m.sku ?? null,
-				unasKey: m.unasKey ?? null,
-				action: hasChange ? 'modify' : 'skip',
-				changes: m.changes || {},
-				before: m.before ?? null,
-				after: m.after ?? null,
-			});
+		run.items = [];
+
+		for (const m of (stats.modified || [])) {
+		run.items.push({
+			sku: m.sku ?? null,
+			action: 'modify',
+			changes: m.changes ?? {}, 
+			error: undefined
+		});
 		}
-		for (const s of stats.skippedNoKey || []) {
-			run.items.push({
-				key: s.key ?? null,
-				sku: null,
-				unasKey: s.unasKey ?? null,
-				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'No key',
-			});
+
+		for (const f of (stats.failed || [])) {
+		run.items.push({
+			sku: f.sku ?? null,
+			action: 'fail',
+			changes: f.changes ?? {},
+			error: f.error || f.statusText || 'Failed'
+		});
 		}
-		for (const s of stats.skippedNotFound || []) {
-			run.items.push({
-				key: s.key ?? null,
-				sku: null,
-				unasKey: s.unasKey ?? null,
-				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'Not found',
-			});
-		}
-		for (const f of stats.failed || []) {
-			run.items.push({
-				key: f.key ?? null,
-				sku: f.sku ?? null,
-				unasKey: f.unasKey ?? null,
-				action: 'fail',
-				changes: {},
-				before: null,
-				after: null,
-				error: f.error || f.statusText || 'Failed',
-			});
-		}
+
 
 		run.stages.downloadMs = t2 - t1;
 		run.stages.parseMs = t3 - t2;

@@ -5,12 +5,21 @@ const { getRates } = require('./rateUpdater');
  * Lekéri az aktuális árfolyamokat a rateUpdaterből.
  * Ha nincsenek frissítve, hibát dob.
  */
-const fetchRates = async () => {
-  const { rates } = getRates();
-  if (!rates || Object.keys(rates).length === 0) {
-    throw new Error('Nincsenek elérhető árfolyamok. Kérjük, frissítse az árfolyamokat.');
+const fetchRates = async (retries = 5, delay = 1000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const { rates } = getRates();
+      if (!rates || Object.keys(rates).length === 0) {
+        throw new Error('Nincsenek elérhető árfolyamok.');
+      }
+      return rates;
+    } catch (error) {
+      if (attempt === retries) {
+        throw new Error('Nincsenek elérhető árfolyamok. Kérjük, frissítse az árfolyamokat.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
-  return rates;
 };
 
 /**

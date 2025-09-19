@@ -40,6 +40,42 @@ router.use('/inngest', express.raw({ type: '*/*' }), (req, res, next) => {
   return inngestHandler(req, res, next);
 });
 
+// --- Egyszerű per-IP rate limiter a /rates endpointhoz ---
+// Beállítások: 60 kérés / 1 perc/IP (env-ből felülírható)
+const RATES_LIMIT = Number(process.env.RATES_LIMIT || 60);
+const RATES_WINDOW_MS = Number(process.env.RATES_WINDOW_MS || 60_000);
+const ratesBuckets = new Map(); // ip -> { count, resetAt }
+
+function getClientIp(req) {
+  // Proxy mögött: X-Forwarded-For első elemét használjuk
+  const xff = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+  return xff || req.ip || req.connection?.remoteAddress || 'unknown';
+}
+
+function ratesRateLimit(req, res, next) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const b = ratesBuckets.get(ip) || { count: 0, resetAt: now + RATES_WINDOW_MS };
+  if (now > b.resetAt) {
+    b.count = 0;
+    b.resetAt = now + RATES_WINDOW_MS;
+  }
+  b.count += 1;
+  ratesBuckets.set(ip, b);
+
+  const remaining = Math.max(0, RATES_LIMIT - b.count);
+  res.set({
+    'X-RateLimit-Limit': String(RATES_LIMIT),
+    'X-RateLimit-Remaining': String(remaining),
+    'X-RateLimit-Reset': String(Math.ceil(b.resetAt / 1000)), // epoch sec
+  });
+
+  if (b.count > RATES_LIMIT) {
+    return res.status(429).json({ error: 'Rate limit exceeded' });
+  }
+  return next();
+}
+
 // Healthcheck
 router.get('/health', (_req, res) => {
 	safeJson(res, 200, { ok: true, time: new Date().toISOString() });
@@ -49,6 +85,7 @@ router.get('/health', (_req, res) => {
 // Csak a routeren belüli route-okra vonatkozzon az auth middleware
 router.use((req, res, next) => {
 	if (req.path.startsWith('/inngest')) return next();
+	if (req.path.startsWith('/rates')) return next();
 	return allowCronOrUser(requireFirebaseUser)(req, res, next);
 });
 
@@ -504,9 +541,15 @@ router.post('/logs/prune', async (req, res) => {
 });
 
 // --- DEVIZAÁRFOLYAMOK LISTÁZÁSA ---
-router.get('/rates', (_req, res) => {
+router.get('/rates', ratesRateLimit, (_req, res) => {
 	try {
-		console.log('[DEBUG] /api/rates endpoint called');
+		res.set({
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, OPTIONS',
+			'Vary': 'Origin',
+			'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=600',
+			'CDN-Cache-Control': 'public, max-age=300'
+		});
 		const getter = rateUpdater?.getRates || rateUpdater;
 		if (typeof getter !== 'function') {
 			console.error('[DEBUG] rateUpdater is not initialized or getRates is not a function');
@@ -529,6 +572,14 @@ router.get('/rates', (_req, res) => {
 			error: e?.message || 'Hiba',
 		});
 	}
+});
+
+router.options('/rates', (_req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*', 
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  });
+  res.status(204).end();
 });
 
 module.exports = router;

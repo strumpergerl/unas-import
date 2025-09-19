@@ -5,6 +5,7 @@ const parseData = require('./core/parseData');
 const transformData = require('./core/transformData');
 const uploadToUnas = require('./core/uploadToUnas');
 const { db, admin } = require('./db/firestore');
+const { updateRates } = require('./utils/rateUpdater');
 
 /** Helper: Firestore Timestamp a Date/ISO-ból */
 const toTs = (d) =>
@@ -117,6 +118,7 @@ async function getLogs(limit = 25) {
 
 /** Egy folyamat futtatása és logolása */
 async function runProcessById(processId) {
+	try { await updateRates(false); } catch (e) { console.warn('[RUNNER] Árfolyam frissítés kihagyva:', e?.message || e); }
 	const startedAt = new Date();
 	let resolvedApiKey = null;
 	const run = {

@@ -506,8 +506,10 @@ router.post('/logs/prune', async (req, res) => {
 // --- DEVIZAÁRFOLYAMOK LISTÁZÁSA ---
 router.get('/rates', (_req, res) => {
 	try {
+		console.log('[DEBUG] /api/rates endpoint called');
 		const getter = rateUpdater?.getRates || rateUpdater;
 		if (typeof getter !== 'function') {
+			console.error('[DEBUG] rateUpdater is not initialized or getRates is not a function');
 			return safeJson(res, 503, {
 				rates: {},
 				lastUpdated: null,
@@ -515,6 +517,7 @@ router.get('/rates', (_req, res) => {
 			});
 		}
 		const out = getter() || {};
+		console.log('[DEBUG] rateUpdater.getRates output:', out);
 		const rates = out.rates || {};
 		const lastUpdated = out.lastUpdated || null;
 		return safeJson(res, 200, { rates, lastUpdated });

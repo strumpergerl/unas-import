@@ -53,7 +53,7 @@ async function addRun(run) {
 		sku: it?.sku ?? null,
 		action: it?.action ?? null,
 		changes: (it && typeof it.changes === 'object' && it.changes !== null) ? it.changes : {},
-		error: it?.error ?? undefined
+		error: it?.error ?? null
 	});
 
 	const itemsProjected = Array.isArray(run.items) ? run.items.map(toProjected) : [];
@@ -237,7 +237,7 @@ async function runProcessById(processId) {
 			sku: m.sku ?? null,
 			action: 'modify',
 			changes: m.changes ?? {}, 
-			error: undefined
+			error: null
 		});
 		}
 

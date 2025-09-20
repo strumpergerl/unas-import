@@ -52,11 +52,16 @@ async function addRun(run) {
 	const toProjected = (it) => ({
 		sku: it?.sku ?? null,
 		action: it?.action ?? null,
-		changes: (it && typeof it.changes === 'object' && it.changes !== null) ? it.changes : {},
-		error: it?.error ?? null
+		changes:
+			it && typeof it.changes === 'object' && it.changes !== null
+				? it.changes
+				: {},
+		error: it?.error ?? null,
 	});
 
-	const itemsProjected = Array.isArray(run.items) ? run.items.map(toProjected) : [];
+	const itemsProjected = Array.isArray(run.items)
+		? run.items.map(toProjected)
+		: [];
 
 	const payload = {
 		...run,
@@ -69,15 +74,24 @@ async function addRun(run) {
 	// Debug: mentendő adat mérete és tartalma
 	try {
 		const runSize = JSON.stringify(run).length;
-		console.log(`[RUNS] Mentés előtt: run méret = ${runSize} byte, items = ${run.items.length}`);
+		console.log(
+			`[RUNS] Mentés előtt: run méret = ${runSize} byte, items = ${run.items.length}`
+		);
 		if (run.items.length > 0) {
 			for (let i = 0; i < Math.min(3, run.items.length); i++) {
-				console.log(`[RUNS] Item[${i}] teljes adat:`, JSON.stringify({
-					sku: run.items[i].sku,
-					action: run.items[i].action,
-					changes: run.items[i].changes,
-					error: run.items[i].error
-				}, null, 2));
+				console.log(
+					`[RUNS] Item[${i}] teljes adat:`,
+					JSON.stringify(
+						{
+							sku: run.items[i].sku,
+							action: run.items[i].action,
+							changes: run.items[i].changes,
+							error: run.items[i].error,
+						},
+						null,
+						2
+					)
+				);
 			}
 		}
 		await ref.set(payload, { merge: false });
@@ -118,7 +132,11 @@ async function getLogs(limit = 25) {
 
 /** Egy folyamat futtatása és logolása */
 async function runProcessById(processId) {
-	try { await updateRates(false); } catch (e) { console.warn('[RUNNER] Árfolyam frissítés kihagyva:', e?.message || e); }
+	try {
+		await updateRates(false);
+	} catch (e) {
+		console.warn('[RUNNER] Árfolyam frissítés kihagyva:', e?.message || e);
+	}
 	const startedAt = new Date();
 	let resolvedApiKey = null;
 	const run = {
@@ -142,8 +160,8 @@ async function runProcessById(processId) {
 			// számlálók:
 			skippedNoChange: 0,
 			skippedNoKey: 0,
-			skippedNotFound: 0,       // összesítő (a *_Count-ra fogjuk állítani)
-			skippedNotFoundCount: 0,  // nyers számláló (opcionális, de hagyjuk meg)
+			skippedNotFound: 0, // összesítő (a *_Count-ra fogjuk állítani)
+			skippedNotFoundCount: 0, // nyers számláló (opcionális, de hagyjuk meg)
 		},
 		items: [],
 		error: null,
@@ -228,33 +246,35 @@ async function runProcessById(processId) {
 		}
 		const t6 = Date.now();
 
-		run.counts.modified        = Array.isArray(stats?.modified) ? stats.modified.length : 0;
-		run.counts.failed          = Array.isArray(stats?.failed) ? stats.failed.length : 0;
-		run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
-		run.counts.skippedNoKey    = stats?.skippedNoKeyCount || 0;
-		run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
-		run.counts.skippedNotFoundCount = stats?.skippedNotFoundCount || 0;
+		run.counts.modified = Array.isArray(uploadResult?.modified)
+			? uploadResult.modified.length
+			: 0;
+		run.counts.failed = Array.isArray(uploadResult?.failed)
+			? uploadResult.failed.length
+			: 0;
+		run.counts.skippedNoChange = uploadResult?.skippedNoChangeCount || 0;
+		run.counts.skippedNoKey = uploadResult?.skippedNoKeyCount || 0;
+		run.counts.skippedNotFound = uploadResult?.skippedNotFoundCount || 0;
 
 		run.items = [];
 
-		for (const m of (stats.modified || [])) {
-		run.items.push({
-			sku: m.sku ?? null,
-			action: 'modify',
-			changes: m.changes ?? {}, 
-			error: null
-		});
+		for (const m of stats.modified || []) {
+			run.items.push({
+				sku: m.sku ?? null,
+				action: 'modify',
+				changes: m.changes ?? {},
+				error: null,
+			});
 		}
 
-		for (const f of (stats.failed || [])) {
-		run.items.push({
-			sku: f.sku ?? null,
-			action: 'fail',
-			changes: f.changes ?? {},
-			error: f.error || f.statusText || 'Failed'
-		});
+		for (const f of stats.failed || []) {
+			run.items.push({
+				sku: f.sku ?? null,
+				action: 'fail',
+				changes: f.changes ?? {},
+				error: f.error || f.statusText || 'Failed',
+			});
 		}
-
 
 		run.stages.downloadMs = t2 - t1;
 		run.stages.parseMs = t3 - t2;

@@ -88,6 +88,6 @@ const hourlyRatesRefresh = inngest.createFunction(
   }
 );
 
-const functions = [dynamicSchedulerFunction, dailyPruneFunction];
+const functions = [dynamicSchedulerFunction, dailyPruneFunction, hourlyRatesRefresh];
 
 module.exports = serve({ client: inngest, functions });

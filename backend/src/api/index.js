@@ -199,12 +199,10 @@ router.get('/feed/headers', async (req, res) => {
 				'[API] /api/feed/headers letöltési hiba:',
 				err?.message || err
 			);
-			return res
-				.status(502)
-				.json({
-					error: 'Feed letöltése sikertelen',
-					details: err?.message || err,
-				});
+			return res.status(502).json({
+				error: 'Feed letöltése sikertelen',
+				details: err?.message || err,
+			});
 		}
 
 		// 2) parse – univerzális parserrel
@@ -213,12 +211,10 @@ router.get('/feed/headers', async (req, res) => {
 			rows = await parseData(buf, { feedUrl: url });
 		} catch (err) {
 			console.error('[API] /api/feed/headers parse hiba:', err?.message || err);
-			return res
-				.status(422)
-				.json({
-					error: 'Feed feldolgozása sikertelen',
-					details: err?.message || err,
-				});
+			return res.status(422).json({
+				error: 'Feed feldolgozása sikertelen',
+				details: err?.message || err,
+			});
 		}
 
 		// 3) fejlécek = első sor kulcsai
@@ -355,16 +351,11 @@ router.post('/run', async (req, res) => {
 
 		// Számlálók + tételek (ha az uploadToUnas részletes statot ad vissza)
 		if (uploadResult) {
-			run.counts.modified = Array.isArray(uploadResult?.modified)
-				? uploadResult.modified.length
-				: 0;
-			run.counts.failed = Array.isArray(uploadResult?.failed)
-				? uploadResult.failed.length
-				: 0;
-			run.counts.skippedNoChange = uploadResult?.skippedNoChangeCount || 0;
-			run.counts.skippedNoKey = uploadResult?.skippedNoKeyCount || 0;
-			run.counts.skippedNotFound = uploadResult?.skippedNotFoundCount || 0; // összesítő
-			run.counts.skippedNotFoundCount = uploadResult?.skippedNotFoundCount || 0; // ha valahol ezt nézed
+			run.counts.modified         = Array.isArray(uploadResult?.modified) ? uploadResult.modified.length : 0;
+			run.counts.failed           = Array.isArray(uploadResult?.failed) ? uploadResult.failed.length : 0;
+			run.counts.skippedNoChange  = uploadResult?.skippedNoChangeCount || 0;
+			run.counts.skippedNoKey     = uploadResult?.skippedNoKeyCount || 0;
+			run.counts.skippedNotFound  = uploadResult?.skippedNotFoundCount || 0;
 
 			// csak módosított és hibás tételek kerüljenek a log tételek közé
 			for (const m of uploadResult?.modified || []) {

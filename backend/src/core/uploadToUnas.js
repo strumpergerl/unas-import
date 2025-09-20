@@ -201,22 +201,34 @@ function makeUnasIndex(rows, unasKey) {
 	return idx;
 }
 
-async function buildDynamicUnasIndex(shopId, cfg, rows, unasKey) {
-	const cKey = cacheKeyFor(shopId, cfg);
-	if (memIndexCache.has(cKey)) return memIndexCache.get(cKey);
+async function buildDynamicUnasIndex(shopId, processConfig, rows, unasKey) {
+  const idx = new Map();
 
-	// Próbáljuk betölteni Firestore-ból
-	// const disk = await loadIndexFromFirestore(shopId, cfg);
-	// if (disk) {
-	// 	memIndexCache.set(cKey, disk);
-	// 	return disk;
-	// }
+  for (const row of rows) {
+    // kulcs az UNAS-ból: csak TRIM-elt, nem üres értékeket engedünk
+    const rawKey = row?.[unasKey];
+    const key = rawKey == null ? '' : String(rawKey).trim();
+    if (!key) continue;
 
-	// Ha nincs cache, építsük fel
-	const idx = makeUnasIndex(rows, unasKey);
-	memIndexCache.set(cKey, idx);
-	// saveIndexToFirestore(shopId, cfg, idx);
-	return idx;
+    // SKU (Cikkszám) kötelező – ne essünk vissza paraméterre!
+    const rawSku = row['Cikkszám'] ?? row['SKU'] ?? row['Sku'] ?? row['sku'];
+    const sku = rawSku == null ? '' : String(rawSku).trim();
+    if (!sku) continue;
+
+    // duplakulcs esetén az utolsó nyer – opcionálisan logolhatsz
+    // if (idx.has(key)) console.warn('[UNAS][INDEX] Duplikált kulcs:', key);
+
+    idx.set(key, { ...row, sku });
+  }
+
+  console.log('[UNAS][INDEX]', {
+    unasKey,
+    totalRows: rows.length,
+    indexedKeys: idx.size,
+    sampleKeys: [...idx.keys()].slice(0, 3),
+  });
+
+  return idx;
 }
 
 async function downloadProductDbCsv(bearer, paramsXml) {
@@ -295,7 +307,7 @@ async function fetchProductBySku(bearer, sku) {
 				for (const p of arr) {
 					console.log('  Name:', p?.Name, 'Value:', p?.Value);
 				}
-			} 
+			}
 			// console.log(
 			// 	'[UNAS][DEBUG] Teljes product:',
 			// 	JSON.stringify(product, null, 2)
@@ -608,8 +620,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// 10) Diff és "nincs változás" kezelése → számláló
 		const changes = diffFields(before || {}, after);
 		if (!changes || Object.keys(changes).length === 0) {
-		stats.skippedNoChangeCount++;
-		continue;
+			stats.skippedNoChangeCount++;
+			continue;
 		}
 
 		const payload = builder.buildObject({
@@ -663,8 +675,16 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 	}
 
+	console.log('[UNAS][STATS][summary]', {
+		total: stats.total,
+		modified: stats.modified.length,
+		failed: stats.failed.length,
+		skippedNoKey: stats.skippedNoKeyCount,
+		skippedNoChange: stats.skippedNoChangeCount,
+		skippedNotFound: stats.skippedNotFoundCount,
+	});
+
 	return stats;
 }
-
 
 module.exports = uploadToUnas;

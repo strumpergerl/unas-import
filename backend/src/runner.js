@@ -138,9 +138,12 @@ async function runProcessById(processId) {
 			input: 0,
 			output: 0,
 			modified: 0,
-			skippedNoKey: 0,
-			skippedNotFound: 0,
 			failed: 0,
+			// számlálók:
+			skippedNoChange: 0,
+			skippedNoKey: 0,
+			skippedNotFound: 0,       // összesítő (a *_Count-ra fogjuk állítani)
+			skippedNotFoundCount: 0,  // nyers számláló (opcionális, de hagyjuk meg)
 		},
 		items: [],
 		error: null,
@@ -225,10 +228,12 @@ async function runProcessById(processId) {
 		}
 		const t6 = Date.now();
 
-		run.counts.modified = stats.modified?.length || 0;
-		run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
-		run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
-		run.counts.failed = stats.failed?.length || 0;
+		run.counts.modified        = Array.isArray(stats?.modified) ? stats.modified.length : 0;
+		run.counts.failed          = Array.isArray(stats?.failed) ? stats.failed.length : 0;
+		run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
+		run.counts.skippedNoKey    = stats?.skippedNoKeyCount || 0;
+		run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
+		run.counts.skippedNotFoundCount = stats?.skippedNotFoundCount || 0;
 
 		run.items = [];
 

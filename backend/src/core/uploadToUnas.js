@@ -56,7 +56,7 @@ const formulaHasVat = (formula) =>
 
 // ---- Mezők kiválasztása a feed rekordból  ----
 function pickFeedKeyValueDynamic(rec, feedKey) {
-	console.log('[DEBUG] pickFeedKeyValueDynamic', { rec, feedKey });
+	// console.log('[DEBUG] pickFeedKeyValueDynamic', { rec, feedKey });
 	return rec?.[feedKey];
 }
 
@@ -291,17 +291,15 @@ async function fetchProductBySku(bearer, sku) {
 			const paramsDbg = product?.Parameters?.Parameter;
 			if (paramsDbg) {
 				const arr = Array.isArray(paramsDbg) ? paramsDbg : [paramsDbg];
-				console.log('[UNAS][DEBUG] Paraméterek:');
+				// console.log('[UNAS][DEBUG] Paraméterek:');
 				for (const p of arr) {
 					console.log('  Name:', p?.Name, 'Value:', p?.Value);
 				}
-			} else {
-				console.log('[UNAS][DEBUG] Nincs Parameters.Parameter');
-			}
-			console.log(
-				'[UNAS][DEBUG] Teljes product:',
-				JSON.stringify(product, null, 2)
-			);
+			} 
+			// console.log(
+			// 	'[UNAS][DEBUG] Teljes product:',
+			// 	JSON.stringify(product, null, 2)
+			// );
 		} catch (e) {
 			console.log('[UNAS][DEBUG] param log error', e);
 		}
@@ -395,6 +393,12 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		unasKey
 	);
 
+	// --- Helper: csak a KERESÉSHEZ trimmelünk (kimenő értékeket nem módosítjuk)
+	function pickFeedKeyValueDynamic(rec, feedKey) {
+		const v = rec?.[feedKey];
+		return v == null ? v : String(v).trim();
+	}
+
 	const stats = {
 		shopId: shop.shopId,
 		shopName: shop.name,
@@ -403,52 +407,61 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		keyFields,
 		total: records.length,
 		modified: [],
-		skippedNoKey: [],
-		skippedNotFound: [],
 		failed: [],
+		// csak számlálók (nem listázunk itemeket a logba)
+		skippedNoKeyCount: 0,
+		skippedNoChangeCount: 0,
+		skippedNotFoundCount: 0,
 		dryRun: !!dryRun,
 	};
 	// console.log(`[UNAS] UNAS index készen áll: ${unasIndex}`);
 
 	for (const rec of records) {
-		// console.log(`[UNAS] Feldolgozás: feedKey=${feedKey}, unasKey=${unasKey}`);
-		// console.log('[UNAS] Rekord:', rec);
+		// 1) feedKey hiánya → SKIP (config probléma)
 		if (!feedKey) {
-			stats.skippedNoKey.push({
-				key: null,
-				reason: `Hiányzik feedKey: ${feedKey}`,
-			});
+			stats.skippedNoKeyCount++;
 			continue;
 		}
-		const entry = unasIndex.get(rec[unasKey]);
-		// console.log('[UNAS] Talált UNAS entry:', entry);
+
+		// 2) feedKey érték kinyerése
+		const feedValue = pickFeedKeyValueDynamic(rec, feedKey);
+		if (feedValue == null || feedValue === '') {
+			// hiányzó/üres kulcs az adott rekordban → SKIP
+			stats.skippedNoKeyCount++;
+			continue;
+		}
+
+		// 3) UNAS index lookup (NOT FOUND = SKIP, nem megy a logba)
+		const entry = unasIndex.get(feedValue);
 		if (!entry || !entry.sku) {
-			stats.skippedNotFound.push({
-				key: unasKey,
-				reason: `Nem található ${feedKey}-nek megfelelő adat ebben a mezőben: ${unasKey}`,
-			});
+			if (stats.skippedNotFoundCount < 5) {
+				console.log('[UNAS][SKIP][not-found]', {
+					feedKey,
+					feedValue,
+					unasKey,
+					exampleIndexKey: [...unasIndex.keys()].slice(0, 1)[0],
+				});
+			}
+			stats.skippedNotFoundCount++;
 			continue;
 		}
 		const unasSku = String(entry.sku).trim();
 
-		// --- Árképzés: csak a feed Price mezőjével számolunk, a config szerinti devizában ---
+		// 4) Ár logika
 		let priceValue = null;
 		let priceField = processConfig?.priceFields?.feed;
 		console.log('[UNAS][DEBUG] priceField from config:', priceField);
 
-		// Ármező explicit ellenőrzése
 		if (
 			rec.hasOwnProperty(priceField) &&
 			rec[priceField] !== undefined &&
 			rec[priceField] !== null &&
 			rec[priceField] !== ''
 		) {
-			// Tisztítás: számot kinyerjük (pl. "19.99 EUR" vagy "19,99EUR")
 			const raw = String(rec[priceField]).replace(',', '.');
 			const match = raw.match(/([0-9.]+)/);
 			if (match) priceValue = parseFloat(match[1]);
 		}
-		// Ha nincs értelmes ár, ne írjuk át 0-ra, hanem logoljuk és hibaként kezeljük
 		if (!Number.isFinite(priceValue) || priceValue < 0) {
 			const msg = `[UNAS][ERROR] Érvénytelen ár a rekordban (sku: ${
 				rec.sku || rec['Cikkszám'] || ''
@@ -466,10 +479,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
-		// Deviza a configból
+		// 5) Deviza + konverzió
 		const currency = (processConfig?.currency || 'HUF').toUpperCase();
-
-		// Átváltás HUF-ra, ha kell
 		let priceHuf = priceValue;
 		if (currency !== 'HUF') {
 			priceHuf = await require('../utils/currencyConverter').convertCurrency(
@@ -479,7 +490,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			);
 		}
 
-		// Árképzés (árrés, ÁFA, stb.)
+		// 6) Nettó/bruttó számítás, kerekítés
 		const netGross = await ensureNetGross(
 			{ price: priceHuf },
 			{ ...processConfig, currency: 'HUF' }
@@ -487,13 +498,11 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		let net = netGross.net;
 		let gross = netGross.gross;
 
-		// Bruttó felkerekítése, a config rounding alapján
 		if (processConfig?.rounding && processConfig.rounding > 0) {
 			const factor = Math.max(1, Number(processConfig.rounding) || 0);
 			gross = Math.ceil(gross / factor) * factor;
 		}
 
-		// DEBUG: log the computed HUF values
 		console.log('[UNAS][DEBUG][computedPrices]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
 			priceField,
@@ -504,13 +513,13 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			gross,
 		});
 
-		// Orderable: csak a bemeneti rekordból vesszük át, nem számoljuk újra
+		// 7) Orderable (bemeno rekordból átvéve)
 		let orderable = rec.orderable;
-		// Logoljuk a számítást
 		console.log('[UNAS][DEBUG][orderable calc]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
 			orderable: orderable,
 		});
+
 		const after = {
 			...rec, // minden mező eredeti formában
 			price_net: net,
@@ -530,7 +539,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
-		// Meglévő UNAS termék lekérése
+		// 8) Meglévő UNAS termék lekérése (ha mégsem létezne → SKIP NOT FOUND)
 		let before = null;
 		let exists = true;
 		let unasEntry = entry || {};
@@ -542,14 +551,10 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			exists = true;
 		}
 		if (!exists) {
-			stats.skippedNotFound.push({
-				key: unasSku,
-				reason: 'Termék nem létezik a shopban (SKU)',
-			});
+			stats.skippedNotFoundCount++;
 			continue;
 		}
 
-		// Debug: log what comes from the feed and from the UNAS index
 		console.log('[UNAS][DEBUG][közös feed és UNAS index]', {
 			sku: rec.sku || rec['Cikkszám'] || '',
 			orderable: orderable,
@@ -562,25 +567,13 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				unasOrderable: orderableValue,
 				unasEntry,
 			});
-			// before = {
-			// 	...before,
-			// 	orderable: orderableValue,
-			// };
 		}
 
+		// 9) XML payload felépítése
 		const productNode = { Sku: unasSku };
 		if (rec.name != null) productNode.Name = String(rec.name);
 
-		// Mindig adjuk át az "orderable" mezőt, ha az after objektumban szerepel
-		// if (after.orderable !== undefined && after.orderable !== '') {
-		// 	productNode.Parameters = [
-		// 		{
-		// 			Name: 'Vásárolható, ha nincs Raktáron',
-		// 			Value: after.orderable,
-		// 		},
-		// 	];
-		// }
-		// Az "orderable" mezőt a Stocks.Status.Empty mezőbe tesszük az UNAS XML-ben, és a Qty mezőt is beállítjuk
+		// orderable → Stocks.Status.Empty + Qty
 		if (after.orderable !== undefined && after.orderable !== '') {
 			let qtyValue = 0;
 			if (rec.hasOwnProperty('stock') && Number.isFinite(Number(rec.stock))) {
@@ -594,13 +587,14 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			productNode.Stocks = {
 				Status: {
 					Active: '1',
-					Empty: String(after.orderable), //
+					Empty: String(after.orderable),
 				},
 				Stock: {
 					Qty: qtyValue,
 				},
 			};
 		}
+
 		productNode.Prices = {
 			Price: {
 				Type: 'normal',
@@ -611,22 +605,21 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			},
 		};
 
+		// 10) Diff és "nincs változás" kezelése → számláló
 		const changes = diffFields(before || {}, after);
-		if (Object.keys(changes).length === 0) {
-			stats.skippedNoChange.push({ sku: unasSku, before, after });
+		if (!changes || Object.keys(changes).length === 0) {
+			stats.skippedNoChangeCount++;
 			continue;
 		}
 
 		const payload = builder.buildObject({
 			Products: { Product: { Action: 'modify', ...productNode } },
 		});
-
-		// Debug: log the full XML payload before sending
 		console.log('[UNAS][DEBUG][XML payload]', { sku: unasSku, payload });
 
+		// 11) UNAS update
 		try {
 			const resp = await postXml('setProduct', payload, bearer);
-			// Debug: log the response from UNAS
 			console.log('[UNAS][DEBUG][UNAS response]', {
 				sku: unasSku,
 				status: resp.status,
@@ -653,7 +646,6 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				changes,
 			});
 		} catch (err) {
-			// Debug: log the error response
 			console.error('[UNAS][DEBUG][UNAS error]', {
 				sku: unasSku,
 				error: err?.message,
@@ -673,5 +665,6 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 	return stats;
 }
+
 
 module.exports = uploadToUnas;

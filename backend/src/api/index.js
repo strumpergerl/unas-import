@@ -17,7 +17,6 @@ const {
 } = require('../../middlewares/auth');
 const inngestHandler = require('../inngest');
 
-
 let uploadToUnas = null;
 
 const router = express.Router();
@@ -36,8 +35,8 @@ function safeJson(res, status, payload) {
 }
 
 router.use('/inngest', express.raw({ type: '*/*' }), (req, res, next) => {
-  // Inngest-nek továbbadjuk
-  return inngestHandler(req, res, next);
+	// Inngest-nek továbbadjuk
+	return inngestHandler(req, res, next);
 });
 
 // --- Egyszerű per-IP rate limiter a /rates endpointhoz ---
@@ -47,33 +46,39 @@ const RATES_WINDOW_MS = Number(process.env.RATES_WINDOW_MS || 60_000);
 const ratesBuckets = new Map(); // ip -> { count, resetAt }
 
 function getClientIp(req) {
-  // Proxy mögött: X-Forwarded-For első elemét használjuk
-  const xff = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
-  return xff || req.ip || req.connection?.remoteAddress || 'unknown';
+	// Proxy mögött: X-Forwarded-For első elemét használjuk
+	const xff = (req.headers['x-forwarded-for'] || '')
+		.toString()
+		.split(',')[0]
+		.trim();
+	return xff || req.ip || req.connection?.remoteAddress || 'unknown';
 }
 
 function ratesRateLimit(req, res, next) {
-  const ip = getClientIp(req);
-  const now = Date.now();
-  const b = ratesBuckets.get(ip) || { count: 0, resetAt: now + RATES_WINDOW_MS };
-  if (now > b.resetAt) {
-    b.count = 0;
-    b.resetAt = now + RATES_WINDOW_MS;
-  }
-  b.count += 1;
-  ratesBuckets.set(ip, b);
+	const ip = getClientIp(req);
+	const now = Date.now();
+	const b = ratesBuckets.get(ip) || {
+		count: 0,
+		resetAt: now + RATES_WINDOW_MS,
+	};
+	if (now > b.resetAt) {
+		b.count = 0;
+		b.resetAt = now + RATES_WINDOW_MS;
+	}
+	b.count += 1;
+	ratesBuckets.set(ip, b);
 
-  const remaining = Math.max(0, RATES_LIMIT - b.count);
-  res.set({
-    'X-RateLimit-Limit': String(RATES_LIMIT),
-    'X-RateLimit-Remaining': String(remaining),
-    'X-RateLimit-Reset': String(Math.ceil(b.resetAt / 1000)), // epoch sec
-  });
+	const remaining = Math.max(0, RATES_LIMIT - b.count);
+	res.set({
+		'X-RateLimit-Limit': String(RATES_LIMIT),
+		'X-RateLimit-Remaining': String(remaining),
+		'X-RateLimit-Reset': String(Math.ceil(b.resetAt / 1000)), // epoch sec
+	});
 
-  if (b.count > RATES_LIMIT) {
-    return res.status(429).json({ error: 'Rate limit exceeded' });
-  }
-  return next();
+	if (b.count > RATES_LIMIT) {
+		return res.status(429).json({ error: 'Rate limit exceeded' });
+	}
+	return next();
 }
 
 // Healthcheck
@@ -101,7 +106,7 @@ router.get('/unas/fields', async (req, res) => {
 		const cacheKey = `${shopId}|${processId || ''}`;
 		const now = Date.now();
 		const cached = unasFieldsCache.get(cacheKey);
-		if (cached && (now - cached.ts < UNAS_FIELDS_CACHE_TTL_MS)) {
+		if (cached && now - cached.ts < UNAS_FIELDS_CACHE_TTL_MS) {
 			return res.json(cached.data);
 		}
 
@@ -145,7 +150,7 @@ const CONFIG_CACHE_TTL_MS = 30 * 1000; // 30 másodperc
 router.get('/config', async (_req, res) => {
 	try {
 		const now = Date.now();
-		if (configCache && (now - configCacheTs < CONFIG_CACHE_TTL_MS)) {
+		if (configCache && now - configCacheTs < CONFIG_CACHE_TTL_MS) {
 			return safeJson(res, 200, configCache);
 		}
 		if (!db || !db.collection) {
@@ -190,8 +195,16 @@ router.get('/feed/headers', async (req, res) => {
 		try {
 			buf = await downloadFile(url);
 		} catch (err) {
-			console.error('[API] /api/feed/headers letöltési hiba:', err?.message || err);
-			return res.status(502).json({ error: 'Feed letöltése sikertelen', details: err?.message || err });
+			console.error(
+				'[API] /api/feed/headers letöltési hiba:',
+				err?.message || err
+			);
+			return res
+				.status(502)
+				.json({
+					error: 'Feed letöltése sikertelen',
+					details: err?.message || err,
+				});
 		}
 
 		// 2) parse – univerzális parserrel
@@ -200,11 +213,17 @@ router.get('/feed/headers', async (req, res) => {
 			rows = await parseData(buf, { feedUrl: url });
 		} catch (err) {
 			console.error('[API] /api/feed/headers parse hiba:', err?.message || err);
-			return res.status(422).json({ error: 'Feed feldolgozása sikertelen', details: err?.message || err });
+			return res
+				.status(422)
+				.json({
+					error: 'Feed feldolgozása sikertelen',
+					details: err?.message || err,
+				});
 		}
 
 		// 3) fejlécek = első sor kulcsai
-		const header = Array.isArray(rows) && rows.length ? Object.keys(rows[0]) : [];
+		const header =
+			Array.isArray(rows) && rows.length ? Object.keys(rows[0]) : [];
 
 		// 4) normalizált válasz a frontendnek
 		const fields = (header || [])
@@ -239,9 +258,11 @@ router.post('/run', async (req, res) => {
 			input: 0,
 			output: 0,
 			modified: 0,
+			failed: 0,
+			skippedNoChange: 0,
 			skippedNoKey: 0,
 			skippedNotFound: 0,
-			failed: 0,
+			skippedNotFoundCount: 0,
 		},
 		items: [],
 		error: null,
@@ -334,11 +355,18 @@ router.post('/run', async (req, res) => {
 
 		// Számlálók + tételek (ha az uploadToUnas részletes statot ad vissza)
 		if (uploadResult) {
-			run.counts.modified = uploadResult?.modified?.length || 0;
-			run.counts.skippedNoKey = uploadResult?.skippedNoKey?.length || 0;
-			run.counts.skippedNotFound = uploadResult?.skippedNotFound?.length || 0;
-			run.counts.failed = uploadResult?.failed?.length || 0;
+			run.counts.modified = Array.isArray(uploadResult?.modified)
+				? uploadResult.modified.length
+				: 0;
+			run.counts.failed = Array.isArray(uploadResult?.failed)
+				? uploadResult.failed.length
+				: 0;
+			run.counts.skippedNoChange = uploadResult?.skippedNoChangeCount || 0;
+			run.counts.skippedNoKey = uploadResult?.skippedNoKeyCount || 0;
+			run.counts.skippedNotFound = uploadResult?.skippedNotFoundCount || 0; // összesítő
+			run.counts.skippedNotFoundCount = uploadResult?.skippedNotFoundCount || 0; // ha valahol ezt nézed
 
+			// csak módosított és hibás tételek kerüljenek a log tételek közé
 			for (const m of uploadResult?.modified || []) {
 				const hasChange = m.changes && Object.keys(m.changes).length > 0;
 				run.items.push({
@@ -351,6 +379,7 @@ router.post('/run', async (req, res) => {
 					after: m.after ?? null,
 				});
 			}
+			// (opcionális) ha nem akarod listázni a "no key" tételeket, a lenti blokkot törölheted
 			for (const s of uploadResult?.skippedNoKey || []) {
 				run.items.push({
 					key: s.key ?? null,
@@ -361,18 +390,6 @@ router.post('/run', async (req, res) => {
 					before: null,
 					after: null,
 					error: s.reason || 'No key',
-				});
-			}
-			for (const s of uploadResult?.skippedNotFound || []) {
-				run.items.push({
-					key: s.key ?? null,
-					sku: null,
-					unasKey: s.unasKey ?? null,
-					action: 'skip',
-					changes: {},
-					before: null,
-					after: null,
-					error: s.reason || 'Not found',
 				});
 			}
 			for (const f of uploadResult?.failed || []) {
@@ -434,7 +451,6 @@ router.post('/config', async (req, res) => {
 		// 	});
 		// }
 
-
 		const now = new Date();
 		const nowIso = now.toISOString();
 
@@ -452,7 +468,10 @@ router.post('/config', async (req, res) => {
 		// nextRunAt automatikus számítása frequency alapján
 		let calcNextRunAt = null;
 		if (data.frequency && typeof data.frequency === 'string') {
-			const m = data.frequency.trim().toLowerCase().match(/^([0-9]+)\s*([smhd])$/);
+			const m = data.frequency
+				.trim()
+				.toLowerCase()
+				.match(/^([0-9]+)\s*([smhd])$/);
 			if (m) {
 				const n = parseInt(m[1], 10);
 				const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
@@ -546,13 +565,16 @@ router.get('/rates', ratesRateLimit, (_req, res) => {
 		res.set({
 			'Access-Control-Allow-Origin': '*',
 			'Access-Control-Allow-Methods': 'GET, OPTIONS',
-			'Vary': 'Origin',
-			'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=600',
-			'CDN-Cache-Control': 'public, max-age=300'
+			Vary: 'Origin',
+			'Cache-Control':
+				'public, max-age=300, s-maxage=300, stale-while-revalidate=600',
+			'CDN-Cache-Control': 'public, max-age=300',
 		});
 		const getter = rateUpdater?.getRates || rateUpdater;
 		if (typeof getter !== 'function') {
-			console.error('[DEBUG] rateUpdater is not initialized or getRates is not a function');
+			console.error(
+				'[DEBUG] rateUpdater is not initialized or getRates is not a function'
+			);
 			return safeJson(res, 503, {
 				rates: {},
 				lastUpdated: null,
@@ -575,11 +597,11 @@ router.get('/rates', ratesRateLimit, (_req, res) => {
 });
 
 router.options('/rates', (_req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': '*', 
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  });
-  res.status(204).end();
+	res.set({
+		'Access-Control-Allow-Origin': '*',
+		'Access-Control-Allow-Methods': 'GET, OPTIONS',
+	});
+	res.status(204).end();
 });
 
 module.exports = router;

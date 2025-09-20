@@ -608,8 +608,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// 10) Diff és "nincs változás" kezelése → számláló
 		const changes = diffFields(before || {}, after);
 		if (!changes || Object.keys(changes).length === 0) {
-			stats.skippedNoChangeCount++;
-			continue;
+		stats.skippedNoChangeCount++;
+		continue;
 		}
 
 		const payload = builder.buildObject({

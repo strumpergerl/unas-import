@@ -222,7 +222,7 @@
 						<!-- RÉSZLETEZŐ TÁBLA -->
 						<el-table :data="detailRows(row)" border size="small" row-key="sku">
 							<el-table-column label="#" type="index" width="50" />
-							<el-table-column label="Státusz" width="90">
+							<el-table-column label="Státusz" width="150">
 								<template #default="{ row: it }">
 									<el-tag :type="rowStatus(it).type">{{
 										rowStatus(it).label

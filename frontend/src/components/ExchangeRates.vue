@@ -34,16 +34,23 @@ export default {
     },
   },
   methods: {
-    async loadRates() {
+    async loadRates(retries = 5, delay = 500) {
       if (!this.user) return;
-      try {
-        const response = await api.getRates();
-        this.rates = response.data.rates || {};
-        console.log('Árfolyamok betöltve:', this.rates);
-      } catch (error) {
-        console.error('Hiba az árfolyamok betöltésekor:', error);
-        if (this.$message && this.$message.error) {
-          this.$message.error('Nem sikerült betölteni az árfolyamokat.');
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const response = await api.getRates();
+          this.rates = response.data.rates || {};
+          console.log('Árfolyamok betöltve:', this.rates);
+          return; // Sikeres betöltés esetén kilépünk
+        } catch (error) {
+          console.error(`Hiba az árfolyamok betöltésekor (próbálkozás ${attempt}):`, error);
+          if (attempt === retries) {
+            if (this.$message && this.$message.error) {
+              this.$message.error('Nem sikerült betölteni az árfolyamokat.');
+            }
+          } else {
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
         }
       }
     },
@@ -70,11 +77,6 @@ export default {
     );
   },
   beforeUnmount() {
-    clearInterval(this.timer);
-    if (this.unwatchUser) this.unwatchUser();
-  },
-  // Vue2 kompatibilitás miatt
-  beforeDestroy() {
     clearInterval(this.timer);
     if (this.unwatchUser) this.unwatchUser();
   },

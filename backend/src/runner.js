@@ -5,6 +5,7 @@ const parseData = require('./core/parseData');
 const transformData = require('./core/transformData');
 const uploadToUnas = require('./core/uploadToUnas');
 const { db, admin } = require('./db/firestore');
+const { updateRates } = require('./utils/rateUpdater');
 
 /** Helper: Firestore Timestamp a Date/ISO-ból */
 const toTs = (d) =>
@@ -49,12 +50,48 @@ async function addRun(run) {
 	// --> ÚJ: tömörítés
 	const compact = compactRunForFirestore({ ...run, startedAtTs, finishedAtTs });
 
+	const toProjected = (it) => ({
+		sku: it?.sku ?? null,
+		action: it?.action ?? null,
+		changes:
+			it && typeof it.changes === 'object' && it.changes !== null
+				? it.changes
+				: {},
+		error: it?.error ?? null,
+	});
+
+	const itemsProjected = Array.isArray(run.items)
+		? run.items.map(toProjected)
+		: [];
+
 	const payload = {
 		...compact,
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
 	};
 
+	// Debug: mentendő adat mérete és tartalma
 	try {
+		const runSize = JSON.stringify(run).length;
+		console.log(
+			`[RUNS] Mentés előtt: run méret = ${runSize} byte, items = ${run.items.length}`
+		);
+		if (run.items.length > 0) {
+			for (let i = 0; i < Math.min(3, run.items.length); i++) {
+				console.log(
+					`[RUNS] Item[${i}] teljes adat:`,
+					JSON.stringify(
+						{
+							sku: run.items[i].sku,
+							action: run.items[i].action,
+							changes: run.items[i].changes,
+							error: run.items[i].error,
+						},
+						null,
+						2
+					)
+				);
+			}
+		}
 		await ref.set(payload, { merge: false });
 		console.log(`[RUNS] Mentve: runs/${docId}`);
 	} catch (e) {
@@ -181,6 +218,11 @@ function compactRunForFirestore(run) {
 
 /** Egy folyamat futtatása és logolása */
 async function runProcessById(processId) {
+	try {
+		await updateRates(false);
+	} catch (e) {
+		console.warn('[RUNNER] Árfolyam frissítés kihagyva:', e?.message || e);
+	}
 	const startedAt = new Date();
 	let resolvedApiKey = null;
 	const run = {
@@ -200,9 +242,12 @@ async function runProcessById(processId) {
 			input: 0,
 			output: 0,
 			modified: 0,
-			skippedNoKey: 0,
-			skippedNotFound: 0,
 			failed: 0,
+			// számlálók:
+			skippedNoChange: 0,
+			skippedNoKey: 0,
+			skippedNotFound: 0, // összesítő (a *_Count-ra fogjuk állítani)
+			skippedNotFoundCount: 0, // nyers számláló (opcionális, de hagyjuk meg)
 		},
 		items: [],
 		error: null,
@@ -287,14 +332,19 @@ async function runProcessById(processId) {
 		}
 		const t6 = Date.now();
 
-		run.counts.modified = stats.modified?.length || 0;
-		run.counts.skippedNoKey = stats.skippedNoKey?.length || 0;
-		run.counts.skippedNotFound = stats.skippedNotFound?.length || 0;
-		run.counts.failed = stats.failed?.length || 0;
+		run.counts.modified = Array.isArray(uploadResult?.modified)
+			? uploadResult.modified.length
+			: 0;
+		run.counts.failed = Array.isArray(uploadResult?.failed)
+			? uploadResult.failed.length
+			: 0;
+		run.counts.skippedNoChange = uploadResult?.skippedNoChangeCount || 0;
+		run.counts.skippedNoKey = uploadResult?.skippedNoKeyCount || 0;
+		run.counts.skippedNotFound = uploadResult?.skippedNotFoundCount || 0;
 
-		// Items (óvatosan a méretekkel – Firestore 1MB/doc limit!)
+		run.items = [];
+
 		for (const m of stats.modified || []) {
-			const hasChange = m.changes && Object.keys(m.changes).length > 0;
 			run.items.push({
 				sku: m.sku ?? null,
 				action: hasChange ? 'modify' : 'skip',
@@ -317,6 +367,7 @@ async function runProcessById(processId) {
 				error: 'Not found',
 			});
 		}
+
 		for (const f of stats.failed || []) {
 			run.items.push({
 				sku: f.sku ?? null,

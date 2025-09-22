@@ -1,14 +1,6 @@
 <!-- frontend/src/components/LogsViewer.vue -->
 <script setup>
 	import { onMounted, ref, onBeforeUnmount, computed } from 'vue';
-
-// --- Segéd: csak valódi változások (to !== null/undefined) ---
-function filteredChanges(changes) {
-       if (!changes) return [];
-       return Object.entries(changes)
-	       .filter(([_, chg]) => chg && chg.to !== null && chg.to !== undefined)
-	       .map(([name, chg]) => ({ name, from: chg.from, to: chg.to }));
-}
 	import api from '../services/api';
 	import { auth, db } from '../firestore';
 	import { onAuthStateChanged } from 'firebase/auth';
@@ -20,27 +12,23 @@ function filteredChanges(changes) {
 		limit,
 	} from 'firebase/firestore';
 
-	const rows = ref([]);
+	// ====== BELSŐ ÁLLAPOT (nincsenek props) ======
+	const runs = ref([]); // a fő lista (FS-ből vagy API-ból töltjük)
 	const loading = ref(false);
 	const VITE_USE_FS_CLIENT_READ = import.meta.env.VITE_USE_FS_CLIENT_READ;
+
+	// ====== PAGINÁCIÓ A FŐ LISTÁRA ======
 	const pageSize = ref(10);
 	const currentPage = ref(1);
-
-	const pagedRows = computed(() => {
+	const pagedRuns = computed(() => {
 		const start = (currentPage.value - 1) * pageSize.value;
-		return rows.value.slice(start, start + pageSize.value);
+		return runs.value.slice(start, start + pageSize.value);
 	});
-
 	function handlePageChange(page) {
 		currentPage.value = page;
 	}
 
-	function hasChanges(it) {
-		if (!it || !it.changes) return false;
-		// Legalább egy olyan változás kell, ahol az új érték nem undefined/null
-		return Object.values(it.changes).some(chg => chg && chg.to !== undefined && chg.to !== null);
-	}
-
+	// ====== FIRESTORE STREAM ======
 	let fsUnsub = null;
 	function stopFs() {
 		if (typeof fsUnsub === 'function') {
@@ -55,20 +43,13 @@ function filteredChanges(changes) {
 		fsUnsub = onSnapshot(
 			query(collection(db, 'runs'), orderBy('startedAt', 'desc'), limit(100)),
 			(snap) => {
-				rows.value = snap.docs.map((d) => ({ id: d.id, ...d.data() })); // NINCS értékátalakítás
+				runs.value = snap.docs.map((d) => ({ id: d.id, ...d.data() })); // mezők értékeit nem alakítjuk át
 			}
 		);
 	}
 
-	function rowStatus(it) {
-		if (it.error) return { label: 'Hibás', type: 'danger' };
-		if (hasChanges(it)) return { label: 'Változott', type: 'success' };
-		return { label: 'Nem változott', type: 'warning' };
-	}
-
+	// ====== AUTH + ADATFORRÁS VÁLASZTÁS ======
 	onAuthStateChanged(auth, (u) => {
-		// Ha engedélyezett a Firestore read és be van jelentkezve a user, használjuk a streamet,
-		// különben marad az API.
 		stopFs();
 		if (VITE_USE_FS_CLIENT_READ && u) {
 			startFs();
@@ -77,6 +58,24 @@ function filteredChanges(changes) {
 		}
 	});
 
+	async function load() {
+		loading.value = true;
+		try {
+			const { data } = await api.getLogs(); // GET /api/logs
+			runs.value = Array.isArray(data) ? data : [];
+		} catch (e) {
+			console.error('Log betöltési hiba:', e);
+		} finally {
+			loading.value = false;
+		}
+	}
+
+	onMounted(() => {
+		if (!VITE_USE_FS_CLIENT_READ) load();
+	});
+	onBeforeUnmount(stopFs);
+
+	// ====== DÁTUM/IDŐ SEGÉDEK ======
 	function toDateAny(v) {
 		if (!v) return null;
 		if (typeof v === 'string' || typeof v === 'number') return new Date(v);
@@ -97,29 +96,95 @@ function filteredChanges(changes) {
 		return `${h}h ${m % 60}m`;
 	}
 
-	async function load() {
-		loading.value = true;
-		try {
-			const { data } = await api.getLogs(); // GET /api/logs
-			rows.value = Array.isArray(data) ? data : [];
-		} catch (e) {
-			console.error('Log betöltési hiba:', e);
-		} finally {
-			loading.value = false;
+	// ====== RÉSZLETEZŐ SOROK (modified + failed), régi forma fallback ======
+	function detailRows(run) {
+		const out = [];
+		(run?.modified || []).forEach((m) => {
+			out.push({
+				status: 'modify',
+				sku: m.sku ?? '',
+				changes: m.changes || null,
+				error: null,
+			});
+		});
+		(run?.failed || []).forEach((f) => {
+			out.push({
+				status: 'fail',
+				sku: f.sku ?? '',
+				changes: null,
+				error: f.error || 'Ismeretlen hiba',
+			});
+		});
+		// Régi futások támogatása:
+		if (!out.length && Array.isArray(run?.items)) {
+			run.items.forEach((it) => out.push(it));
 		}
+		return out;
 	}
-	onMounted(() => {
-		if (!VITE_USE_FS_CLIENT_READ) load();
-	});
-	onBeforeUnmount(stopFs);
+
+	// ====== UI SEGÉDEK ======
+	function rowStatus(it) {
+		if (it.status === 'fail' || it.error)
+			return { type: 'danger', label: 'Hibás' };
+		if (it.status === 'modify') return { type: 'success', label: 'Változott' };
+		return { type: 'info', label: 'Info' };
+	}
+	function hasChanges(it) {
+		const ch = it?.changes;
+		if (!ch) return false;
+		if (Array.isArray(ch)) return ch.length > 0;
+		if (typeof ch === 'object') return Object.keys(ch).length > 0;
+		return false;
+	}
+	function filteredChanges(ch) {
+		if (Array.isArray(ch)) return ch;
+		if (ch && typeof ch === 'object') {
+			return Object.entries(ch).map(([key, val]) => ({
+				name: key,
+				from: undefined,
+				to: val,
+			}));
+		}
+		return [];
+	}
+
+	// ====== FEJLÉC SZÁMLÁLÓK (új séma) ======
+	function modifiedCount(run) {
+		return run?.counts?.modified ?? run?.meta?.modifiedTotal ?? 0;
+	}
+	function failedCount(run) {
+		return run?.counts?.failed ?? run?.meta?.failedTotal ?? 0;
+	}
+	function skippedTotal(run) {
+		const c = run?.counts || {};
+		return (
+			run?.skipped?.total ?? (c.skippedNoKey || 0) + (c.skippedNotFound || 0)
+		);
+	}
+	function unchangedCount(run) {
+		return run?.counts?.unchanged ?? 0;
+	}
+	function totalFor(run) {
+		const c = run?.counts || {};
+		const meta = run?.meta || {};
+		const skipped = skippedTotal(run);
+		if (Number.isFinite(c.total)) return c.total;
+		return (
+			(meta.modifiedTotal ?? c.modified ?? 0) +
+			(meta.failedTotal ?? c.failed ?? 0) +
+			skipped +
+			(c.unchanged || 0)
+		);
+	}
 </script>
 
 <template>
 	<div class="p-4" style="margin-top: 5rem">
 		<el-divider content-position="center">Folyamat logok</el-divider>
 
+		<!-- FŐ TÁBLA -->
 		<el-table
-			:data="pagedRows"
+			:data="pagedRuns"
 			v-loading="loading"
 			border
 			stripe
@@ -130,16 +195,32 @@ function filteredChanges(changes) {
 			<el-table-column type="expand" width="40">
 				<template #default="{ row }">
 					<div class="p-2 space-y-2">
-						<div class="mb-2 text-sm text-gray-600" style="padding: 1rem 1rem; background: #eee; font-weight: bold;">
+						<div
+							class="mb-2 text-sm text-gray-600"
+							style="padding: 1rem 1rem; background: #eee; font-weight: bold"
+						>
 							<span class="mr-3"
 								>Run ID: <code>{{ row.id }}</code></span
 							>
 							<span v-if="row.error" class="text-red-600 font-medium"
 								>Hiba: {{ row.error }}</span
 							>
+							<span
+								v-if="row?.meta?.truncated"
+								class="text-xs text-gray-500"
+								style="display: block; margin-top: 0.5rem"
+							>
+								Megjelenítve: <br />
+								összesen {{ totalFor(row) }} termék,<br />
+								módosított {{ row.meta.modifiedStored }}/{{
+									row.meta.modifiedTotal
+								}},<br />
+								hibás {{ row.meta.failedStored }}/{{ row.meta.failedTotal }}.
+							</span>
 						</div>
 
-						<el-table :data="row.items" border size="small" row-key="sku">
+						<!-- RÉSZLETEZŐ TÁBLA -->
+						<el-table :data="detailRows(row)" border size="small" row-key="sku">
 							<el-table-column label="#" type="index" width="50" />
 							<el-table-column label="Státusz" width="90">
 								<template #default="{ row: it }">
@@ -149,39 +230,11 @@ function filteredChanges(changes) {
 								</template>
 							</el-table-column>
 							<el-table-column prop="sku" label="SKU" min-width="140" />
-							<el-table-column prop="key" label="Feed kulcs" min-width="160" />
-							<el-table-column
-								prop="unasKey"
-								label="Unas kulcs"
-								min-width="140"
-							>
-								<template #default="{ row: it }">
-									<el-tooltip
-										:content="it.unasKey"
-										placement="top"
-										effect="dark"
-									>
-										<div
-											style="
-												overflow: hidden;
-												text-overflow: ellipsis;
-												display: -webkit-box;
-												-webkit-line-clamp: 2;
-												-webkit-box-orient: vertical;
-												white-space: normal;
-												word-break: break-all;
-												cursor: pointer;
-											"
-										>
-											{{ it.unasKey }}
-										</div>
-									</el-tooltip>
-								</template>
-							</el-table-column>
+
 							<el-table-column label="Változások" min-width="380">
 								<template #default="{ row: it }">
 									<div
-										v-if="rowStatus(it).label === 'Modify' && hasChanges(it)"
+										v-if="rowStatus(it).label === 'Változott' && hasChanges(it)"
 										class="space-y-1"
 									>
 										<div
@@ -191,13 +244,17 @@ function filteredChanges(changes) {
 										>
 											<strong>{{ chg.name }}:</strong>
 											<span style="margin-left: 4px">
-												<span style="text-decoration: line-through; color: #888">
-													{{ chg.from !== null && chg.from !== undefined ? chg.from : '–' }}
-												</span>
-												<span style="margin: 0 2px">→</span>
-												<span style="color: #222; font-weight: bold">
-													{{ chg.to }}
-												</span>
+												<template v-if="chg.from !== undefined">
+													<span
+														style="text-decoration: line-through; color: #888"
+													>
+														{{ chg.from }}
+													</span>
+													<span style="margin: 0 2px">→</span>
+												</template>
+												<span style="color: #222; font-weight: bold">{{
+													chg.to
+												}}</span>
 											</span>
 										</div>
 									</div>
@@ -206,6 +263,7 @@ function filteredChanges(changes) {
 									</div>
 								</template>
 							</el-table-column>
+
 							<el-table-column
 								prop="error"
 								label="Megjegyzés / Hiba"
@@ -236,36 +294,29 @@ function filteredChanges(changes) {
 			</el-table-column>
 
 			<el-table-column label="Összesen" width="100" align="center">
-				<template #default="{ row }">{{
-					row.counts?.output ?? row.counts?.input ?? 0
-				}}</template>
+				<template #default="{ row }">{{ totalFor(row) }}</template>
 			</el-table-column>
 			<el-table-column label="Változott" width="90" align="center">
-				<template #default="{ row }">
-					<el-tag type="success">{{
-						row.items?.filter((it) => !it.error && hasChanges(it)).length || 0
-					}}</el-tag>
-				</template>
+				<template #default="{ row }"
+					><el-tag type="success">{{ modifiedCount(row) }}</el-tag></template
+				>
 			</el-table-column>
 			<el-table-column label="Nem változott" width="100" align="center">
-				<template #default="{ row }">
-					<el-tag type="warning">{{
-						row.items?.filter((it) => !it.error && !hasChanges(it)).length || 0
-					}}</el-tag>
-				</template>
+				<template #default="{ row }"
+					><el-tag type="warning">{{ unchangedCount(row) }}</el-tag></template
+				>
 			</el-table-column>
 			<el-table-column label="Hibás" width="90" align="center">
-				<template #default="{ row }">
-					<el-tag type="danger">{{
-						row.items?.filter((it) => it.error).length || 0
-					}}</el-tag>
-				</template>
+				<template #default="{ row }"
+					><el-tag type="danger">{{ failedCount(row) }}</el-tag></template
+				>
 			</el-table-column>
 		</el-table>
+
 		<el-pagination
 			v-model:current-page="currentPage"
 			:page-size="pageSize"
-			:total="rows.length"
+			:total="runs.length"
 			layout="prev, pager, next"
 			@current-change="handlePageChange"
 			class="mt-4"

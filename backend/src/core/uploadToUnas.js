@@ -62,7 +62,7 @@ function pickFeedKeyValueDynamic(rec, feedKey) {
 
 /** Nettó/Bruttó biztosítása a processConfig alapján */
 function ensureNetGross(item, processConfig) {
-	const vatPct = Number(processConfig?.vat ?? 0);
+	const vatPct = Number(processConfig?.vat ?? 27);
 	const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
 	const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
@@ -622,7 +622,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		});
 
 		// Debug: log the full XML payload before sending
-		console.log('[UNAS][DEBUG][XML payload]', { sku: unasSku, payload });
+		//console.log('[UNAS][DEBUG][XML payload]', { sku: unasSku, payload });
 
 		try {
 			const resp = await postXml('setProduct', payload, bearer);

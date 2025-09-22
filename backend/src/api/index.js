@@ -305,9 +305,7 @@ router.post('/run', async (req, res) => {
 			for (const m of uploadResult?.modified || []) {
 				const hasChange = m.changes && Object.keys(m.changes).length > 0;
 				run.items.push({
-					key: m.key ?? null,
 					sku: m.sku ?? null,
-					unasKey: m.unasKey ?? null,
 					action: hasChange ? 'modify' : 'skip',
 					changes: m.changes || {},
 					before: m.before ?? null,
@@ -316,37 +314,22 @@ router.post('/run', async (req, res) => {
 			}
 			for (const s of uploadResult?.skippedNoKey || []) {
 				run.items.push({
-					key: s.key ?? null,
-					sku: null,
-					unasKey: s.unasKey ?? null,
+					sku: s.sku ?? null,
 					action: 'skip',
-					changes: {},
-					before: null,
-					after: null,
-					error: s.reason || 'No key',
+					error: 'No key',
 				});
 			}
 			for (const s of uploadResult?.skippedNotFound || []) {
 				run.items.push({
-					key: s.key ?? null,
-					sku: null,
-					unasKey: s.unasKey ?? null,
+					sku: s.sku ?? null,
 					action: 'skip',
-					changes: {},
-					before: null,
-					after: null,
-					error: s.reason || 'Not found',
+					error: 'Not found',
 				});
 			}
 			for (const f of uploadResult?.failed || []) {
 				run.items.push({
-					key: f.key ?? null,
 					sku: f.sku ?? null,
-					unasKey: f.unasKey ?? null,
 					action: 'fail',
-					changes: {},
-					before: null,
-					after: null,
 					error: f.error || f.statusText || 'Failed',
 				});
 			}

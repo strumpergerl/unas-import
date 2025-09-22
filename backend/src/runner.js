@@ -43,15 +43,14 @@ async function addRun(run) {
 	const docId = run.id || `${run.processId || 'proc'}_${run.startedAt}`;
 	const ref = db.collection('runs').doc(docId);
 
-	// Gondoskodunk a Timestamp mezőkről
 	const startedAtTs = run.startedAtTs || toTs(run.startedAt);
-	const finishedAtTs =
-		run.finishedAtTs || (run.finishedAt ? toTs(run.finishedAt) : null);
+	const finishedAtTs = run.finishedAtTs || (run.finishedAt ? toTs(run.finishedAt) : null);
+
+	// --> ÚJ: tömörítés
+	const compact = compactRunForFirestore({ ...run, startedAtTs, finishedAtTs });
 
 	const payload = {
-		...run,
-		startedAtTs,
-		...(finishedAtTs ? { finishedAtTs } : {}),
+		...compact,
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
 	};
 
@@ -60,7 +59,7 @@ async function addRun(run) {
 		console.log(`[RUNS] Mentve: runs/${docId}`);
 	} catch (e) {
 		console.error('[RUNS] Firestore írás HIBA:', e?.message || e);
-		throw e; // jelezzük a hívónak is
+		throw e;
 	}
 
 	// Nem kritikus: rotáció
@@ -91,6 +90,94 @@ async function getLogs(limit = 25) {
 		return snap.docs.map((d) => d.data());
 	}
 }
+
+/** Firestore dokumentum tömörítése a log számára **/
+
+const SAFE_DOC_LIMIT = 1_000_000; // Firestore ~1MB limit körül biztonsági sáv
+function compactRunForFirestore(run) {
+  // 1) Minimális, kért tartalom
+  const modifiedAll = (run.items || [])
+    .filter((i) => i.action === 'modify')
+    .map((i) => ({ sku: i.sku ?? null, changes: i.changes || {} }));
+
+  const failedAll = (run.items || [])
+    .filter((i) => i.action === 'fail')
+    .map((i) => ({ sku: i.sku ?? null, error: i.error || 'Failed' }));
+
+  const skipped = {
+    noKey: Number(run.counts?.skippedNoKey || 0),
+    notFound: Number(run.counts?.skippedNotFound || 0),
+    total: Number(run.counts?.skippedNoKey || 0) + Number(run.counts?.skippedNotFound || 0),
+  };
+
+  // 2) Alap payload (mezők értékeit nem alakítjuk át)
+  let payload = {
+    id: run.id,
+    processId: run.processId ?? null,
+    processName: run.processName ?? null,
+    shopId: run.shopId ?? null,
+    shopName: run.shopName ?? null,
+    startedAt: run.startedAt,
+    startedAtTs: run.startedAtTs,
+    finishedAt: run.finishedAt,
+    finishedAtTs: run.finishedAtTs,
+    durationMs: run.durationMs ?? null,
+    dryRun: !!run.dryRun,
+    stages: run.stages || {},
+    counts: run.counts || {},
+    error: run.error ?? null,
+
+    // csak a kért listák:
+    modified: modifiedAll,
+    failed: failedAll,
+    skipped,
+
+    // meta infó a vágásról (kezdetben nincs vágás)
+    meta: {
+      modifiedTotal: modifiedAll.length,
+      failedTotal: failedAll.length,
+      modifiedStored: modifiedAll.length,
+      failedStored: failedAll.length,
+      truncated: false,
+    },
+  };
+
+  // 3) Méretőr – ha túl nagy lenne, lépcsőzetesen vágunk a listák végéből
+  const fits = (obj) => Buffer.byteLength(JSON.stringify(obj)) < SAFE_DOC_LIMIT;
+
+  if (!fits(payload)) {
+    // Először a modified listát kurtítjuk
+    let lo = 0, hi = modifiedAll.length, keep = Math.min(hi, 1000);
+    // bináris keresés szerű csökkentés
+    while (keep >= 0) {
+      payload.modified = modifiedAll.slice(0, keep);
+      payload.meta.modifiedStored = payload.modified.length;
+      payload.meta.truncated = true;
+      if (fits(payload)) break;
+      keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+      if (keep <= 0) break;
+    }
+  }
+
+  if (!fits(payload)) {
+    // Ha még mindig nagy, a failed listát is vágjuk
+    let keep = Math.min(failedAll.length, 500);
+    while (keep >= 0) {
+      payload.failed = failedAll.slice(0, keep);
+      payload.meta.failedStored = payload.failed.length;
+      payload.meta.truncated = true;
+      if (fits(payload)) break;
+      keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+      if (keep <= 0) break;
+    }
+  }
+
+  // Végezetül NE tároljuk az eredeti run.items tömböt a dokumentumban
+  delete payload.items;
+  return payload;
+}
+
+/**  **/
 
 /** Egy folyamat futtatása és logolása */
 async function runProcessById(processId) {
@@ -155,14 +242,14 @@ async function runProcessById(processId) {
 		}
 
 		// DEBUG LOG: processId, shopId, shop, apiKey resolved-e
-		console.log('[RUNNER][DEBUG]', {
-			processId,
-			shopId: proc.shopId,
-			shopDoc: {
-				...shop,
-				apiKey: resolvedApiKey ? '[RESOLVED]' : '[NOT RESOLVED]',
-			},
-		});
+		// console.log('[RUNNER][DEBUG]', {
+		// 	processId,
+		// 	shopId: proc.shopId,
+		// 	shopDoc: {
+		// 		...shop,
+		// 		apiKey: resolvedApiKey ? '[RESOLVED]' : '[NOT RESOLVED]',
+		// 	},
+		// });
 
 		run.processName = proc.displayName || proc.processId;
 		run.shopId = shop.shopId;
@@ -209,9 +296,7 @@ async function runProcessById(processId) {
 		for (const m of stats.modified || []) {
 			const hasChange = m.changes && Object.keys(m.changes).length > 0;
 			run.items.push({
-				key: m.key ?? null,
 				sku: m.sku ?? null,
-				unasKey: m.unasKey ?? null,
 				action: hasChange ? 'modify' : 'skip',
 				changes: m.changes || {},
 				before: m.before ?? null,
@@ -220,37 +305,22 @@ async function runProcessById(processId) {
 		}
 		for (const s of stats.skippedNoKey || []) {
 			run.items.push({
-				key: s.key ?? null,
 				sku: null,
-				unasKey: s.unasKey ?? null,
 				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'No key',
+				error: 'No key',
 			});
 		}
 		for (const s of stats.skippedNotFound || []) {
 			run.items.push({
-				key: s.key ?? null,
 				sku: null,
-				unasKey: s.unasKey ?? null,
 				action: 'skip',
-				changes: {},
-				before: null,
-				after: null,
-				error: s.reason || 'Not found',
+				error: 'Not found',
 			});
 		}
 		for (const f of stats.failed || []) {
 			run.items.push({
-				key: f.key ?? null,
 				sku: f.sku ?? null,
-				unasKey: f.unasKey ?? null,
 				action: 'fail',
-				changes: {},
-				before: null,
-				after: null,
 				error: f.error || f.statusText || 'Failed',
 			});
 		}

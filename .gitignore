@@ -139,3 +139,4 @@ dist
 
 # Unas import cache
 "backend/cache/"
+*.exe

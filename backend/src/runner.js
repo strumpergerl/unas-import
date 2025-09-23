@@ -317,6 +317,15 @@ async function runProcessById(processId) {
 		run.counts.output = Array.isArray(trans) ? trans.length : 0;
 		run.counts.total = run.counts.input;
 
+		// <<< FEED KULCS visszaemelése a transzformált sorokba (mint az index.js-ben)
+		if (proc?.keyFields?.feed) {
+			const feedKey = String(proc.keyFields.feed);
+			trans = trans.map((row, i) => {
+				const src = recs[i] || {};
+				return (src[feedKey] === undefined) ? row : { ...row, [feedKey]: src[feedKey] };
+			});
+		}
+
 		// 4) Upload 
 		let stats = {
 			modified: [],
@@ -355,20 +364,20 @@ async function runProcessById(processId) {
 				after: m.after ?? null,
 			});
 		}
-		for (const s of stats.skippedNoKey || []) {
-			run.items.push({
-				sku: null,
-				action: 'skip',
-				error: 'No key',
-			});
-		}
-		for (const s of stats.skippedNotFound || []) {
-			run.items.push({
-				sku: null,
-				action: 'skip',
-				error: 'Not found',
-			});
-		}
+		// for (const s of stats.skippedNoKey || []) {
+		// 	run.items.push({
+		// 		sku: null,
+		// 		action: 'skip',
+		// 		error: 'No key',
+		// 	});
+		// }
+		// for (const s of stats.skippedNotFound || []) {
+		// 	run.items.push({
+		// 		sku: null,
+		// 		action: 'skip',
+		// 		error: 'Not found',
+		// 	});
+		// }
 
 		for (const f of stats.failed || []) {
 			run.items.push({

@@ -1,3 +1,4 @@
+<!-- src/components/ShopSelector.vue -->
 <template>
   <el-select
     v-model="internalShopId"

@@ -1,3 +1,4 @@
+<!-- src/components/ProcessForm.vue -->
 <template>
 	<el-form :model="form" label-width="200px">
 		<el-form-item label="Folyamat neve">
@@ -498,7 +499,8 @@
 			}
 
 			function detectGroup(label) {
-				const l = normalize(label);
+				// const l = normalize(label);
+				const l = String(label || '');
 
 				// Paraméterek
 				if (
@@ -547,7 +549,7 @@
 				return 'Egyéb';
 			}
 
-			async function loadUnasFields(shopId) {
+			async function loadUnasFields(shopId, processId) {
 				console.log('user:', userRef.value);
 				if (!shopId || !userRef.value) {
 					unasOptions.value = [];
@@ -555,7 +557,8 @@
 				}
 				try {
 					unasFieldsLoading.value = true;
-					const resp = await api.getUnasFields(shopId);
+					const pid = (form.processId || props.initial.processId || '').trim() || undefined;
+					const resp = await api.getUnasFields(shopId, pid);
 					const json = resp.data;
 					console.log('UNAS fields API response:', json);
 					// 1) listába szedjük (stringek)
@@ -641,7 +644,7 @@
 			watch([showRef, userRef, safeShopId], ([show, user, shopId]) => {
 				console.log('watcher fired', { show, user, shopId });
 				if (show && user && shopId) {
-					loadUnasFields(shopId);
+					loadUnasFields(shopId, form.processId || props.initial.processId);
 				} else if (!show) {
 					unasOptions.value = [];
 				}
@@ -654,7 +657,7 @@
 					shopId: form.shopId,
 				});
 				if (props.show && userRef.value && form.shopId)
-					loadUnasFields(form.shopId);
+					loadUnasFields(form.shopId, form.processId || props.initial.processId);
 			});
 
 			// ---- FEED mezőlista (CSV / XLSX / XML) ----
@@ -936,7 +939,7 @@
 	function tokensToText(tokens) {
 		return tokens.join('');
 	}
-	// ...existing code...
+
 </script>
 
 <style scoped>

@@ -1,3 +1,4 @@
+<!-- src/components/ExchangeRates.vue -->
 <template>
   <div class="exchange-rates">
     <template v-if="Object.keys(rates).length">

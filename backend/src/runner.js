@@ -243,7 +243,6 @@ async function runProcessById(processId) {
 			output: 0,
 			modified: 0,
 			failed: 0,
-			// számlálók:
 			skippedNoChange: 0,
 			skippedNoKey: 0,
 			skippedNotFound: 0, // összesítő (a *_Count-ra fogjuk állítani)
@@ -316,35 +315,38 @@ async function runProcessById(processId) {
 
 		run.counts.input = Array.isArray(recs) ? recs.length : 0;
 		run.counts.output = Array.isArray(trans) ? trans.length : 0;
+		run.counts.total = run.counts.input;
 
-		// 4) Upload (ha nem dryRun)
+		// 4) Upload 
 		let stats = {
 			modified: [],
-			skippedNoKey: [],
-			skippedNotFound: [],
 			failed: [],
+			skippedNoKeyCount: 0,
+			skippedNoChangeCount: 0,
+			skippedNotFoundCount: 0,
 			dryRun: true,
 		};
 
 		const t5 = Date.now();
-		if (!proc.dryRun) {
-			stats = await uploadToUnas(trans, proc, shop);
-		}
+
+		stats = await uploadToUnas(trans, proc, shop);
+
 		const t6 = Date.now();
 
-		run.counts.modified = Array.isArray(uploadResult?.modified)
-			? uploadResult.modified.length
+		run.counts.modified = Array.isArray(stats?.modified)
+			? stats.modified.length
 			: 0;
-		run.counts.failed = Array.isArray(uploadResult?.failed)
-			? uploadResult.failed.length
+		run.counts.failed = Array.isArray(stats?.failed)
+			? stats.failed.length
 			: 0;
-		run.counts.skippedNoChange = uploadResult?.skippedNoChangeCount || 0;
-		run.counts.skippedNoKey = uploadResult?.skippedNoKeyCount || 0;
-		run.counts.skippedNotFound = uploadResult?.skippedNotFoundCount || 0;
+		run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
+		run.counts.skippedNoKey = stats?.skippedNoKeyCount || 0;
+		run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
 
 		run.items = [];
 
 		for (const m of stats.modified || []) {
+			const hasChange = m.changes && Object.keys(m.changes).length > 0;
 			run.items.push({
 				sku: m.sku ?? null,
 				action: hasChange ? 'modify' : 'skip',
@@ -440,7 +442,8 @@ async function runProcessById(processId) {
 			console.warn('[RUNNER] Email notification error:', e?.message || e);
 		}
 	} catch (err) {
-		run.error = err?.message || String(err);
+		const msg = err?.message || String(err);
+		run.error = `[runProcessById] ${msg}`;
 		try {
 			await sendNotification(`Hiba a folyamat futtatásakor`, run.error);
 		} catch {

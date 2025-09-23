@@ -9,6 +9,8 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const { getBearerToken } = require('../services/unas');
+const { canonicalizeKey } = require('../utils/key');
+const { matchByExactKey } = require('../utils/strictMatch');
 const { loadShopById } = require('../services/shops');
 const { parse: csvParse } = require('csv-parse/sync');
 const { db } = require('../db/firestore');
@@ -123,8 +125,9 @@ function ensureNetGross(item, processConfig) {
 			gross = 0;
 		}
 
-		net = Math.floor(Math.max(0, net));
-		gross = Math.floor(Math.max(0, gross));
+		net = Math.max(0, net);
+		gross = Math.max(0, gross);
+		
 		return {
 			net,
 			gross,
@@ -201,34 +204,40 @@ function makeUnasIndex(rows, unasKey) {
 	return idx;
 }
 
-async function buildDynamicUnasIndex(shopId, processConfig, rows, unasKey) {
-  const idx = new Map();
+async function buildDynamicUnasIndex(
+	shopId,
+	processConfig,
+	rows,
+	unasKey,
+	{ caseSensitive = true } = {}
+) {
+	const idx = new Map();
 
-  for (const row of rows) {
-    // kulcs az UNAS-ból: csak TRIM-elt, nem üres értékeket engedünk
-    const rawKey = row?.[unasKey];
-    const key = rawKey == null ? '' : String(rawKey).trim();
-    if (!key) continue;
+	for (const row of rows) {
+		// kulcs az UNAS-ból
+		const rawKey = row?.[unasKey];
+		const key = canonicalizeKey(rawKey, { caseSensitive });
+		if (!key) continue;
 
-    // SKU (Cikkszám) kötelező – ne essünk vissza paraméterre!
-    const rawSku = row['Cikkszám'] ?? row['SKU'] ?? row['Sku'] ?? row['sku'];
-    const sku = rawSku == null ? '' : String(rawSku).trim();
-    if (!sku) continue;
+		// SKU (Cikkszám) kötelező – ne essünk vissza paraméterre!
+		const rawSku = row['Cikkszám'] ?? row['SKU'] ?? row['Sku'] ?? row['sku'];
+		const sku = rawSku == null ? '' : String(rawSku).trim();
+		if (!sku) continue;
 
-    // duplakulcs esetén az utolsó nyer – opcionálisan logolhatsz
-    // if (idx.has(key)) console.warn('[UNAS][INDEX] Duplikált kulcs:', key);
+		// duplakulcs esetén az utolsó nyer – opcionálisan logolhatsz
+		// if (idx.has(key)) console.warn('[UNAS][INDEX] Duplikált kulcs:', key);
 
-    idx.set(key, { ...row, sku });
-  }
+		idx.set(key, { ...row, sku });
+	}
 
-  console.log('[UNAS][INDEX]', {
-    unasKey,
-    totalRows: rows.length,
-    indexedKeys: idx.size,
-    sampleKeys: [...idx.keys()].slice(0, 3),
-  });
+	console.log('[UNAS][INDEX]', {
+		unasKey,
+		totalRows: rows.length,
+		indexedKeys: idx.size,
+		sampleKeys: [...idx.keys()].slice(0, 3),
+	});
 
-  return idx;
+	return idx;
 }
 
 async function downloadProductDbCsv(bearer, paramsXml) {
@@ -348,7 +357,8 @@ async function fetchProductBySku(bearer, sku) {
 
 function diffFields(before, after) {
 	const changes = {};
-	const fields = ['name', 'stock', 'price_net', 'price_gross', 'orderable'];
+	const fields = Object.keys(after || {});
+
 	for (const f of fields) {
 		let b = before?.[f];
 		let a = after?.[f];
@@ -387,17 +397,35 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 	const feedKey = keyFields.feed;
 	const unasKey = keyFields.unas;
 
-	console.log(
-		`[UNAS] Feltöltés indítása: ${
-			records.length
-		} rekord, shopId=${shopId}, feedKey=${feedKey}, unasKey=${unasKey}, dryRun=${!!dryRun}`
-	);
+	if (!feedKey || !unasKey) {
+		throw new Error(
+			`[CONFIG] keyFields hiányos: feed="${feedKey}", unas="${unasKey}"`
+		);
+	}
+	if (records.length) {
+		const k0 = Object.keys(records[0]);
+		if (!k0.includes(feedKey)) {
+			throw new Error(
+				`[DATA] A transzformált rekordok nem tartalmazzák a feed kulcsot: "${feedKey}". (Első rekord kulcsai: ${k0.join(
+					', '
+				)})`
+			);
+		}
+	}
 
 	// --- UNAS termékek letöltése ---
-	const { rows } = await downloadProductDbCsv(
+	const { rows, header } = await downloadProductDbCsv(
 		bearer,
 		processConfig.productDbParamsXml
 	);
+	if (!Array.isArray(header) || !header.includes(unasKey)) {
+		throw new Error(
+			`[UNAS] A ProductDB fejléc nem tartalmazza a kiválasztott UNAS kulcsot: "${unasKey}". (Fejléc minta: ${
+				header?.slice?.(0, 8)?.join(', ') || 'n/a'
+			})`
+		);
+	}
+
 	const unasIndex = await buildDynamicUnasIndex(
 		shopId,
 		processConfig,
@@ -405,10 +433,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		unasKey
 	);
 
-	// --- Helper: csak a KERESÉSHEZ trimmelünk (kimenő értékeket nem módosítjuk)
-	function pickFeedKeyValueDynamic(rec, feedKey) {
-		const v = rec?.[feedKey];
-		return v == null ? v : String(v).trim();
+	// --- Helper függvény: feedKey érték kinyerése dinamikusan ---
+	function pickFeedKeyValue(rec, feedKey, { caseSensitive = true } = {}) {
+		return canonicalizeKey(rec?.[feedKey], { caseSensitive });
 	}
 
 	const stats = {
@@ -436,7 +463,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		// 2) feedKey érték kinyerése
-		const feedValue = pickFeedKeyValueDynamic(rec, feedKey);
+		const feedValue = pickFeedKeyValue(rec, feedKey, { caseSensitive: true });
+
 		if (feedValue == null || feedValue === '') {
 			// hiányzó/üres kulcs az adott rekordban → SKIP
 			stats.skippedNoKeyCount++;
@@ -444,7 +472,13 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		// 3) UNAS index lookup (NOT FOUND = SKIP, nem megy a logba)
-		const entry = unasIndex.get(feedValue);
+		const { entry } = matchByExactKey(
+			{ [feedKey]: feedValue },
+			unasIndex,
+			feedKey,
+			{ caseSensitive: true }
+		);
+
 		if (!entry || !entry.sku) {
 			if (stats.skippedNotFoundCount < 5) {
 				console.log('[UNAS][SKIP][not-found]', {
@@ -462,7 +496,6 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// 4) Ár logika
 		let priceValue = null;
 		let priceField = processConfig?.priceFields?.feed;
-		console.log('[UNAS][DEBUG] priceField from config:', priceField);
 
 		if (
 			rec.hasOwnProperty(priceField) &&
@@ -495,24 +528,30 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		const currency = (processConfig?.currency || 'HUF').toUpperCase();
 		let priceHuf = priceValue;
 		if (currency !== 'HUF') {
-			priceHuf = await require('../utils/currencyConverter').convertCurrency(
-				priceValue,
-				currency,
-				'HUF'
-			);
+			priceHuf = await convertCurrency(priceValue, currency, 'HUF');
 		}
 
-		// 6) Nettó/bruttó számítás, kerekítés
+		// 6) Nettó/bruttó számítás, kerekítés (bruttó → kerekítés → nettó visszavezetés)
 		const netGross = await ensureNetGross(
 			{ price: priceHuf },
 			{ ...processConfig, currency: 'HUF' }
 		);
+		const vatPct = Number(processConfig?.vat ?? 27);
+		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
+
 		let net = netGross.net;
 		let gross = netGross.gross;
 
 		if (processConfig?.rounding && processConfig.rounding > 0) {
 			const factor = Math.max(1, Number(processConfig.rounding) || 0);
-			gross = Math.ceil(gross / factor) * factor;
+			const grossRounded = Math.ceil(gross / factor) * factor;
+			const netRounded = Math.round(grossRounded / vatFactor);
+			gross = grossRounded;
+			net = netRounded;
+		} else {
+			// ha nincs lépcsőzés, akkor sima kerekítés egészre
+			gross = Math.round(gross);
+			net = Math.round(net);
 		}
 
 		console.log('[UNAS][DEBUG][computedPrices]', {
@@ -527,10 +566,10 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		// 7) Orderable (bemeno rekordból átvéve)
 		let orderable = rec.orderable;
-		console.log('[UNAS][DEBUG][orderable calc]', {
-			sku: rec.sku || rec['Cikkszám'] || '',
-			orderable: orderable,
-		});
+		// console.log('[UNAS][DEBUG][orderable calc]', {
+		// 	sku: rec.sku || rec['Cikkszám'] || '',
+		// 	orderable: orderable,
+		// });
 
 		const after = {
 			...rec, // minden mező eredeti formában
@@ -574,35 +613,23 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		});
 		if (unasEntry) {
 			let orderableValue = unasEntry['Vásárolható, ha nincs Raktáron'];
-			console.log('[UNAS][DEBUG][orderable unasIndex]', {
-				sku: unasSku,
-				unasOrderable: orderableValue,
-				unasEntry,
-			});
+			// console.log('[UNAS][DEBUG][orderable unasIndex]', {
+			// 	sku: unasSku,
+			// 	unasOrderable: orderableValue,
+			// 	unasEntry,
+			// });
 		}
 
 		// 9) XML payload felépítése
 		const productNode = { Sku: unasSku };
 		if (rec.name != null) productNode.Name = String(rec.name);
 
-		// orderable → Stocks.Status.Empty + Qty
+		// orderable → csak a státuszt küldjük
 		if (after.orderable !== undefined && after.orderable !== '') {
-			let qtyValue = 0;
-			if (rec.hasOwnProperty('stock') && Number.isFinite(Number(rec.stock))) {
-				qtyValue = Number(rec.stock);
-			} else if (
-				rec.hasOwnProperty('qty') &&
-				Number.isFinite(Number(rec.qty))
-			) {
-				qtyValue = Number(rec.qty);
-			}
 			productNode.Stocks = {
 				Status: {
 					Active: '1',
 					Empty: String(after.orderable),
-				},
-				Stock: {
-					Qty: qtyValue,
 				},
 			};
 		}
@@ -618,7 +645,15 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		};
 
 		// 10) Diff és "nincs változás" kezelése → számláló
-		const changes = diffFields(before || {}, after);
+		const afterComparable = {
+			price_net: net,
+			price_gross: gross,
+		};
+		if (productNode.Stocks) {
+			afterComparable.orderable = after.orderable;
+		}
+
+		const changes = diffFields(before || {}, afterComparable);
 		if (!changes || Object.keys(changes).length === 0) {
 			stats.skippedNoChangeCount++;
 			continue;

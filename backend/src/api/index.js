@@ -277,6 +277,9 @@ router.post('/run', async (req, res) => {
 			dryRun = true,
 			shopId,
 			records,
+			keyFields,
+			priceFields,
+			stockFields,
 		} = req.body || {};
 
 		// Process betöltés Firestore-ból, ha csak processId jött
@@ -300,6 +303,9 @@ router.post('/run', async (req, res) => {
 				priceMargin,
 				dryRun,
 				shopId,
+				keyFields,
+				priceFields,
+				stockFields,
 			};
 		}
 
@@ -334,10 +340,18 @@ router.post('/run', async (req, res) => {
 
 		// Transzformáció
 		const t4 = Date.now();
-		const transformed = await transformData(inputRows, cfg);
+		let transformed = await transformData(inputRows, cfg);
 		const t5 = Date.now();
 		run.stages.transformMs = t5 - t4;
 		run.counts.output = transformed.length;
+
+		if (cfg?.keyFields?.feed) {
+			const feedKey = String(cfg.keyFields.feed);
+			transformed = transformed.map((row, i) => {
+				const src = inputRows[i] || {};
+				return (src[feedKey] === undefined) ? row : { ...row, [feedKey]: src[feedKey] };
+			});
+		}
 
 		// Feltöltés
 		const t6 = Date.now();

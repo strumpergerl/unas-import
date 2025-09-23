@@ -41,7 +41,7 @@
 	function startFs() {
 		stopFs();
 		fsUnsub = onSnapshot(
-			query(collection(db, 'runs'), orderBy('startedAt', 'desc'), limit(100)),
+			query(collection(db, 'runs'), orderBy('startedAtTs', 'desc'), limit(100)),
 			(snap) => {
 				runs.value = snap.docs.map((d) => ({ id: d.id, ...d.data() })); // mezők értékeit nem alakítjuk át
 			}
@@ -131,21 +131,59 @@
 	}
 	function hasChanges(it) {
 		const ch = it?.changes;
-		if (!ch) return false;
-		if (Array.isArray(ch)) return ch.length > 0;
-		if (typeof ch === 'object') return Object.keys(ch).length > 0;
-		return false;
+		if (!ch || typeof ch !== 'object') return false;
+		// van-e bármely mezőnél különbség (from != to)
+		return Object.values(ch).some((v) => {
+			if (v && typeof v === 'object' && ('from' in v || 'to' in v)) {
+				const a = v?.from ?? '';
+				const b = v?.to ?? '';
+				return String(a) !== String(b);
+			}
+			return true; // primitív változás
+		});
 	}
-	function filteredChanges(ch) {
-		if (Array.isArray(ch)) return ch;
-		if (ch && typeof ch === 'object') {
-			return Object.entries(ch).map(([key, val]) => ({
-				name: key,
-				from: undefined,
-				to: val,
-			}));
+
+	// Értékek barátságos formázása a kijelzéshez
+	function formatChangeValue(name, v) {
+		if (v === undefined || v === null || v === '') return '—';
+		// rendelhetőség (1/0, true/false) → magyar címke
+		if (name === 'orderable') {
+			return v === 1 || v === '1' || v === true
+				? 'Rendelhető'
+				: 'Nem rendelhető';
 		}
-		return [];
+		// árak: egyszerű ezres tagolás (ha szám)
+		if (name === 'price_net' || name === 'price_gross') {
+			const n = Number(v);
+			return Number.isFinite(n)
+				? new Intl.NumberFormat('hu-HU').format(n)
+				: String(v);
+		}
+		return String(v);
+	}
+
+	// A változás-objektumot (pl. { orderable:{from,to}, price_gross:{from,to} })
+	// egységes listává lapítjuk, "korábbi → új" formában
+	function filteredChanges(ch) {
+		if (!ch || typeof ch !== 'object') return [];
+		const out = [];
+		for (const [name, val] of Object.entries(ch)) {
+			if (val && typeof val === 'object' && ('from' in val || 'to' in val)) {
+				out.push({
+					name,
+					from: formatChangeValue(name, val.from),
+					to: formatChangeValue(name, val.to),
+				});
+			} else {
+				// ritka: csak új érték ismert
+				out.push({
+					name,
+					from: '—',
+					to: formatChangeValue(name, val),
+				});
+			}
+		}
+		return out;
 	}
 
 	// ====== FEJLÉC SZÁMLÁLÓK (új séma) ======
@@ -162,7 +200,9 @@
 		);
 	}
 	function unchangedCount(run) {
-		return run?.counts?.unchanged ?? 0;
+		return (
+			run?.counts?.skippedNoChange ?? run?.counts?.skippedNoChangeCount ?? 0
+		);
 	}
 	function totalFor(run) {
 		const c = run?.counts || {};
@@ -229,9 +269,9 @@
 									}}</el-tag>
 								</template>
 							</el-table-column>
-							<el-table-column prop="sku" label="SKU" min-width="140" />
+							<el-table-column prop="sku" label="SKU" min-width="200" />
 
-							<el-table-column label="Változások" min-width="380">
+							<el-table-column label="Változások" min-width="320">
 								<template #default="{ row: it }">
 									<div
 										v-if="rowStatus(it).label === 'Változott' && hasChanges(it)"
@@ -244,14 +284,14 @@
 										>
 											<strong>{{ chg.name }}:</strong>
 											<span style="margin-left: 4px">
-												<template v-if="chg.from !== undefined">
-													<span
-														style="text-decoration: line-through; color: #888"
-													>
-														{{ chg.from }}
-													</span>
-													<span style="margin: 0 2px">→</span>
-												</template>
+												<!-- Mindig a korábbi legyen elöl -->
+												<span
+													v-if="chg.from !== undefined"
+													style="text-decoration: line-through; color: #888"
+												>
+													{{ chg.from }}
+												</span>
+												<span style="margin: 0 2px">→</span>
 												<span style="color: #222; font-weight: bold">{{
 													chg.to
 												}}</span>

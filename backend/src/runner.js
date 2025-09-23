@@ -45,7 +45,8 @@ async function addRun(run) {
 	const ref = db.collection('runs').doc(docId);
 
 	const startedAtTs = run.startedAtTs || toTs(run.startedAt);
-	const finishedAtTs = run.finishedAtTs || (run.finishedAt ? toTs(run.finishedAt) : null);
+	const finishedAtTs =
+		run.finishedAtTs || (run.finishedAt ? toTs(run.finishedAt) : null);
 
 	// --> ÚJ: tömörítés
 	const compact = compactRunForFirestore({ ...run, startedAtTs, finishedAtTs });
@@ -132,86 +133,90 @@ async function getLogs(limit = 25) {
 
 const SAFE_DOC_LIMIT = 1_000_000; // Firestore ~1MB limit körül biztonsági sáv
 function compactRunForFirestore(run) {
-  // 1) Minimális, kért tartalom
-  const modifiedAll = (run.items || [])
-    .filter((i) => i.action === 'modify')
-    .map((i) => ({ sku: i.sku ?? null, changes: i.changes || {} }));
+	// 1) Minimális, kért tartalom
+	const modifiedAll = (run.items || [])
+		.filter((i) => i.action === 'modify')
+		.map((i) => ({ sku: i.sku ?? null, changes: i.changes || {} }));
 
-  const failedAll = (run.items || [])
-    .filter((i) => i.action === 'fail')
-    .map((i) => ({ sku: i.sku ?? null, error: i.error || 'Failed' }));
+	const failedAll = (run.items || [])
+		.filter((i) => i.action === 'fail')
+		.map((i) => ({ sku: i.sku ?? null, error: i.error || 'Failed' }));
 
-  const skipped = {
-    noKey: Number(run.counts?.skippedNoKey || 0),
-    notFound: Number(run.counts?.skippedNotFound || 0),
-    total: Number(run.counts?.skippedNoKey || 0) + Number(run.counts?.skippedNotFound || 0),
-  };
+	const skipped = {
+		noKey: Number(run.counts?.skippedNoKey || 0),
+		notFound: Number(run.counts?.skippedNotFound || 0),
+		total:
+			Number(run.counts?.skippedNoKey || 0) +
+			Number(run.counts?.skippedNotFound || 0),
+	};
 
-  // 2) Alap payload (mezők értékeit nem alakítjuk át)
-  let payload = {
-    id: run.id,
-    processId: run.processId ?? null,
-    processName: run.processName ?? null,
-    shopId: run.shopId ?? null,
-    shopName: run.shopName ?? null,
-    startedAt: run.startedAt,
-    startedAtTs: run.startedAtTs,
-    finishedAt: run.finishedAt,
-    finishedAtTs: run.finishedAtTs,
-    durationMs: run.durationMs ?? null,
-    dryRun: !!run.dryRun,
-    stages: run.stages || {},
-    counts: run.counts || {},
-    error: run.error ?? null,
+	// 2) Alap payload (mezők értékeit nem alakítjuk át)
+	let payload = {
+		id: run.id,
+		processId: run.processId ?? null,
+		processName: run.processName ?? null,
+		shopId: run.shopId ?? null,
+		shopName: run.shopName ?? null,
+		startedAt: run.startedAt,
+		startedAtTs: run.startedAtTs,
+		finishedAt: run.finishedAt,
+		finishedAtTs: run.finishedAtTs,
+		durationMs: run.durationMs ?? null,
+		dryRun: !!run.dryRun,
+		stages: run.stages || {},
+		counts: run.counts || {},
+		error: run.error ?? null,
 
-    // csak a kért listák:
-    modified: modifiedAll,
-    failed: failedAll,
-    skipped,
+		// csak a kért listák:
+		modified: modifiedAll,
+		failed: failedAll,
+		skipped,
 
-    // meta infó a vágásról (kezdetben nincs vágás)
-    meta: {
-      modifiedTotal: modifiedAll.length,
-      failedTotal: failedAll.length,
-      modifiedStored: modifiedAll.length,
-      failedStored: failedAll.length,
-      truncated: false,
-    },
-  };
+		// meta infó a vágásról (kezdetben nincs vágás)
+		meta: {
+			modifiedTotal: modifiedAll.length,
+			failedTotal: failedAll.length,
+			modifiedStored: modifiedAll.length,
+			failedStored: failedAll.length,
+			truncated: false,
+		},
+	};
 
-  // 3) Méretőr – ha túl nagy lenne, lépcsőzetesen vágunk a listák végéből
-  const fits = (obj) => Buffer.byteLength(JSON.stringify(obj)) < SAFE_DOC_LIMIT;
+	// 3) Méretőr – ha túl nagy lenne, lépcsőzetesen vágunk a listák végéből
+	const fits = (obj) => Buffer.byteLength(JSON.stringify(obj)) < SAFE_DOC_LIMIT;
 
-  if (!fits(payload)) {
-    // Először a modified listát kurtítjuk
-    let lo = 0, hi = modifiedAll.length, keep = Math.min(hi, 1000);
-    // bináris keresés szerű csökkentés
-    while (keep >= 0) {
-      payload.modified = modifiedAll.slice(0, keep);
-      payload.meta.modifiedStored = payload.modified.length;
-      payload.meta.truncated = true;
-      if (fits(payload)) break;
-      keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
-      if (keep <= 0) break;
-    }
-  }
+	if (!fits(payload)) {
+		// Először a modified listát kurtítjuk
+		let lo = 0,
+			hi = modifiedAll.length,
+			keep = Math.min(hi, 1000);
+		// bináris keresés szerű csökkentés
+		while (keep >= 0) {
+			payload.modified = modifiedAll.slice(0, keep);
+			payload.meta.modifiedStored = payload.modified.length;
+			payload.meta.truncated = true;
+			if (fits(payload)) break;
+			keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+			if (keep <= 0) break;
+		}
+	}
 
-  if (!fits(payload)) {
-    // Ha még mindig nagy, a failed listát is vágjuk
-    let keep = Math.min(failedAll.length, 500);
-    while (keep >= 0) {
-      payload.failed = failedAll.slice(0, keep);
-      payload.meta.failedStored = payload.failed.length;
-      payload.meta.truncated = true;
-      if (fits(payload)) break;
-      keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
-      if (keep <= 0) break;
-    }
-  }
+	if (!fits(payload)) {
+		// Ha még mindig nagy, a failed listát is vágjuk
+		let keep = Math.min(failedAll.length, 500);
+		while (keep >= 0) {
+			payload.failed = failedAll.slice(0, keep);
+			payload.meta.failedStored = payload.failed.length;
+			payload.meta.truncated = true;
+			if (fits(payload)) break;
+			keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+			if (keep <= 0) break;
+		}
+	}
 
-  // Végezetül NE tároljuk az eredeti run.items tömböt a dokumentumban
-  delete payload.items;
-  return payload;
+	// Végezetül NE tároljuk az eredeti run.items tömböt a dokumentumban
+	delete payload.items;
+	return payload;
 }
 
 /**  **/
@@ -310,7 +315,7 @@ async function runProcessById(processId) {
 		const t3 = Date.now();
 
 		// 3) Transform
-		const trans = await transformData(recs, proc);
+		let trans = await transformData(recs, proc);
 		const t4 = Date.now();
 
 		run.counts.input = Array.isArray(recs) ? recs.length : 0;
@@ -322,11 +327,13 @@ async function runProcessById(processId) {
 			const feedKey = String(proc.keyFields.feed);
 			trans = trans.map((row, i) => {
 				const src = recs[i] || {};
-				return (src[feedKey] === undefined) ? row : { ...row, [feedKey]: src[feedKey] };
+				return src[feedKey] === undefined
+					? row
+					: { ...row, [feedKey]: src[feedKey] };
 			});
 		}
 
-		// 4) Upload 
+		// 4) Upload
 		let stats = {
 			modified: [],
 			failed: [],
@@ -345,9 +352,7 @@ async function runProcessById(processId) {
 		run.counts.modified = Array.isArray(stats?.modified)
 			? stats.modified.length
 			: 0;
-		run.counts.failed = Array.isArray(stats?.failed)
-			? stats.failed.length
-			: 0;
+		run.counts.failed = Array.isArray(stats?.failed) ? stats.failed.length : 0;
 		run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
 		run.counts.skippedNoKey = stats?.skippedNoKeyCount || 0;
 		run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
@@ -453,10 +458,45 @@ async function runProcessById(processId) {
 	} catch (err) {
 		const msg = err?.message || String(err);
 		run.error = `[runProcessById] ${msg}`;
+
 		try {
-			await sendNotification(`Hiba a folyamat futtatásakor`, run.error);
-		} catch {
-			// némán tovább
+			const procName = run.processName || processId;
+			const shopName = run.shopName || '';
+			const started = run.startedAt
+				? new Date(run.startedAt).toLocaleString('hu-HU')
+				: '';
+			const finished = run.finishedAt
+				? new Date(run.finishedAt).toLocaleString('hu-HU')
+				: '';
+			const duration = run.durationMs
+				? `${Math.floor(run.durationMs / 60000)} perc ${Math.floor(
+						(run.durationMs % 60000) / 1000
+				  )} mp`
+				: '';
+
+			const subject = `❌ Folyamat futtatási hiba - ${procName}`;
+			const body = `
+<div style="font-family:Arial,sans-serif;">
+  <h2 style="color:#c62828;">Hiba történt a szinkron futtatásakor</h2>
+  <table style="border-collapse:collapse;">
+    <tr><td><b>Shop:</b></td><td>${shopName}</td></tr>
+    <tr><td><b>Folyamat:</b></td><td>${procName}</td></tr>
+    <tr><td><b>Indult:</b></td><td>${started}</td></tr>
+    <tr><td><b>Befejeződött:</b></td><td>${finished}</td></tr>
+    <tr><td><b>Időtartam:</b></td><td>${duration}</td></tr>
+    <tr><td><b>Hiba oka:</b></td><td style="color:#c62828;">${msg}</td></tr>
+  </table>
+  <br>
+  <small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
+</div>
+`;
+
+			await sendNotification(subject, body);
+		} catch (mailErr) {
+			console.warn(
+				'[RUNNER] Email küldés HIBA (runProcessById error ág):',
+				mailErr?.message || mailErr
+			);
 		}
 	} finally {
 		const finished = new Date();

@@ -388,7 +388,7 @@ async function runProcessById(processId) {
 			run.items.push({
 				sku: f.sku ?? null,
 				action: 'fail',
-				error: f.error || f.statusText || 'Failed',
+				error: f.error || f.message || f.reason || f.statusText || 'Failed',
 			});
 		}
 
@@ -415,9 +415,20 @@ async function runProcessById(processId) {
 			if (run.counts.failed > 0) {
 				// Küldjünk emailt, ha van hibás tétel
 				const subject = `⚠️ Hibás tételek a szinkronban - ${procName}`;
+				const failedPreview = (run.items || [])
+					.filter((it) => it.action === 'fail')
+					.slice(0, 5)
+					.map(
+						(it) =>
+							`<li><code>${it.sku || '-'}</code> – ${String(
+								it.error || ''
+							).replace(/[<>]/g, '')}</li>`
+					)
+					.join('');
+
 				const body = `
 <div style="font-family:Arial,sans-serif;">
-	<h2 style="color:#c62828;">Szinkron lefutott, de voltak hibás tételek</h2>
+  <h2 style="color:#c62828;">Szinkron lefutott, de voltak hibás tételek</h2>
 	<table style="border-collapse:collapse;">
 		<tr><td><b>Shop:</b></td><td>${shopName}</td></tr>
 		<tr><td><b>Folyamat:</b></td><td>${procName}</td></tr>
@@ -428,7 +439,8 @@ async function runProcessById(processId) {
 		<tr><td><b>Hibás termékek:</b></td><td style="color:#c62828;">${run.counts.failed}</td></tr>
 	</table>
 	<br>
-	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
+	${failedPreview ? `<h3>Példák:</h3><ul>${failedPreview}</ul>` : ''}
+  <small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
 </div>
 `;
 				await sendNotification(subject, body);

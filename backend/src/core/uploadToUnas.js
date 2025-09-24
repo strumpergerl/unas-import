@@ -58,10 +58,51 @@ const hash = (obj) =>
 const formulaHasVat = (formula) =>
 	typeof formula === 'string' && /\{vat\}/i.test(formula);
 
-// ---- Mezők kiválasztása a feed rekordból  ----
-function pickFeedKeyValueDynamic(rec, feedKey) {
-	// console.log('[DEBUG] pickFeedKeyValueDynamic', { rec, feedKey });
-	return rec?.[feedKey];
+const formulaHasShipping = (formula) =>
+	typeof formula === 'string' && /\{shipping\}/i.test(formula);
+
+function parseNumSmart(v) {
+	if (v == null) return null;
+	let s = String(v).trim().toLowerCase();
+	// egység eltávolítás (kg, g)
+	s = s.replace(/\s+/g, '');
+	if (s.endsWith('kg')) s = s.slice(0, -2);
+	if (s.endsWith('g')) {
+		const num = Number(s.slice(0, -1).replace(',', '.'));
+		return Number.isFinite(num) ? num / 1000 : null;
+	}
+	s = s.replace(',', '.');
+	const n = Number(s);
+	return Number.isFinite(n) ? n : null;
+}
+
+// Súly kigyűjtése
+function pickWeightFromConfigured(rec, unasEntry, processConfig) {
+	const feedKey = processConfig?.weightFields?.feed;
+	const unasKey = processConfig?.weightFields?.unas;
+
+	// 1) FEED
+	if (feedKey && rec && rec[feedKey] != null) {
+		const n = parseNumSmart(rec[feedKey]);
+		if (n != null && n > 0) return n;
+	}
+	// 2) UNAS index
+	if (unasKey && unasEntry && unasEntry[unasKey] != null) {
+		const n = parseNumSmart(unasEntry[unasKey]);
+		if (n != null && n > 0) return n;
+	}
+	return null;
+}
+
+// Szállítási komponens kalkuláció (Ft vagy Ft/kg * kg)
+function calcShippingComponentHuf({ shippingType, shippingValue, weight }) {
+	const val = Number(shippingValue) || 0;
+	if (val <= 0) return 0;
+	if (shippingType === 'weight') {
+		if (weight == null) return null; // jelöljük, hogy hiányzik
+		return val * weight;
+	}
+	return val; // fixed
 }
 
 /** Nettó/Bruttó biztosítása a processConfig alapján */
@@ -137,7 +178,6 @@ function ensureNetGross(item, processConfig) {
 		};
 	}
 
-	// Mivel a hívó nem async, visszaadunk egy Promise-t, amit a hívó oldalon await-elni kell!
 	return compute();
 }
 
@@ -495,6 +535,67 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 		const unasSku = String(entry.sku).trim();
 
+		const includesShipping = formulaHasShipping(processConfig?.pricingFormula || '');
+		const includesVat      = formulaHasVat(processConfig?.pricingFormula || '');
+		
+		const requiresWeight =
+			includesShipping && (processConfig?.shippingType || 'fixed') === 'weight';
+		// --- Súly és szállítás ---
+		const wf = processConfig?.weightFields || {};
+
+		if (requiresWeight && !wf.feed && !wf.unas) {
+			// Nincs beállítva honnan vegyük a súlyt → konfigurációs hiba
+			stats.failed.push({
+				key: feedKey,
+				sku: unasSku,
+				unasKey,
+				reason: 'Hiányzó súly mezőpár (config)',
+				message:
+					'[UNAS][ERROR] Súly alapú szállítást kértél, de a weightFields.feed/unas nincs beállítva a processConfig-ban.',
+				error: '[súly] Hiányzó weightFields feed/unas a konfigurációban',
+			});
+			continue;
+		}
+
+		const weight = pickWeightFromConfigured(rec, entry, processConfig);
+
+		const shippingAmountOrNull = calcShippingComponentHuf({
+			shippingType: processConfig?.shippingType || 'fixed',
+			shippingValue: processConfig?.shippingValue || 0,
+			weight,
+		});
+
+		if (requiresWeight) {
+			const wf = processConfig?.weightFields || {};
+			if (shippingAmountOrNull == null) {
+				const msg = `[súly] Súly alapú szállítást állítottál be, de nincs súly adat (feed="${
+					wf.feed || ''
+				}", unas="${wf.unas || ''}").`;
+				stats.failed.push({
+					key: feedKey,
+					sku: unasSku,
+					unasKey,
+					reason: 'Hiányzó súly adat',
+					message: msg,
+					error: msg,
+				});
+				console.warn('[UNAS][WEIGHT][MISSING]', {
+					sku: unasSku,
+					feedKey: processConfig?.weightFields?.feed,
+					feedVal: processConfig?.weightFields?.feed
+						? rec[processConfig.weightFields.feed]
+						: undefined,
+					unasKey: processConfig?.weightFields?.unas,
+					unasVal: processConfig?.weightFields?.unas
+						? entry[processConfig.weightFields.unas]
+						: undefined,
+				});
+				continue;
+			}
+		}
+		const shippingAmount = includesShipping ? (shippingAmountOrNull || 0) : 0;
+
+
 		// 4) Ár logika
 		let priceValue = null;
 		let priceField = processConfig?.priceFields?.feed;
@@ -522,6 +623,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				priceField,
 				priceValue: rec[priceField],
 				message: msg,
+				error: `[ár] ${msg}`,
 			});
 			continue;
 		}
@@ -534,10 +636,17 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		// 6) Nettó/bruttó számítás, kerekítés (bruttó → kerekítés → nettó visszavezetés)
-		const netGross = await ensureNetGross(
-			{ price: priceHuf },
-			{ ...processConfig, currency: 'HUF' }
-		);
+		const treatLegacyAsGross = includesVat;
+
+		const itemForEnsure = treatLegacyAsGross
+			? { price_gross: priceHuf + shippingAmount }
+			: { price_net: priceHuf + shippingAmount };
+
+		const netGross = await ensureNetGross(itemForEnsure, {
+			...processConfig,
+			currency: 'HUF',
+		});
+
 		const vatPct = Number(processConfig?.vat ?? 27);
 		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
@@ -550,21 +659,41 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			const factor = Math.max(1, Number(processConfig.rounding) || 0);
 			const grossRounded = Math.ceil(gross / factor) * factor; // lépcsőre kerekített bruttó (egész)
 			gross = grossRounded;
-			net = round4(gross / vatFactor); // nettó 2 tizedes
+			net = round4(gross / vatFactor); // nettó 4 tizedes
 		} else {
-			// bruttó marad egészre kerekítve, nettó 2 tizedes a bruttóból
+			// bruttó marad egészre kerekítve, nettó 4 tizedes a bruttóból
 			gross = Math.round(gross);
 			net = round4(gross / vatFactor);
 		}
 
-		console.log('[UNAS][DEBUG][computedPrices]', {
-			sku: rec.sku || rec['Cikkszám'] || '',
-			priceField,
-			priceValue,
-			currency,
-			priceHuf,
-			net,
-			gross,
+		console.log('[UNAS][DEBUG][calc]', {
+			sku: unasSku,
+			priceSrc: {
+				field: priceField,
+				value: rec[priceField],
+				parsed: priceValue,
+				currency,
+			},
+			weightSrc: {
+				feedKey: processConfig?.weightFields?.feed,
+				feedVal: processConfig?.weightFields?.feed
+					? rec[processConfig.weightFields.feed]
+					: undefined,
+				unasKey: processConfig?.weightFields?.unas,
+				unasVal: processConfig?.weightFields?.unas
+					? entry[processConfig.weightFields.unas]
+					: undefined,
+				parsed: weight,
+			},
+			shipping: {
+				type: processConfig?.shippingType,
+				value: processConfig?.shippingValue,
+				amount: shippingAmount,
+				includesShipping,
+				amountApplied: shippingAmount,
+			},
+			preRound: { net: netGross.net, gross: netGross.gross },
+			postRound: { net, gross },
 		});
 
 		// 7) Orderable (bemeno rekordból átvéve)
@@ -580,6 +709,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			price_gross: gross,
 			currency: currency,
 			orderable: orderable,
+			_calc: { weight, shippingAmount },
 		};
 
 		if (dryRun) {
@@ -640,7 +770,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		productNode.Prices = {
 			Price: {
 				Type: 'normal',
-				Net: toPosNumberString(net, 4), 
+				Net: toPosNumberString(net, 4),
 				Gross: toPosNumberString(gross),
 				Currency: currency,
 				Actual: '1',
@@ -686,6 +816,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 					status: resp.status,
 					statusText: resp.statusText,
 					raw: resp.data,
+					error: `[UNAS] setProduct ${resp.status} ${resp.statusText}`,
 				});
 				continue;
 			}
@@ -710,7 +841,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				status: err?.response?.status || null,
 				statusText: err?.response?.statusText || String(err?.message || err),
 				raw: err?.response?.data || null,
-				error: String(err?.message || err),
+				error: `[UNAS] ${String(err?.message || err)}`,
 			});
 		}
 	}

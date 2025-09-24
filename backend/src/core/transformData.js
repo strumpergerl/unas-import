@@ -2,46 +2,60 @@
 
 // Minimal normalization: field mapping, type conversion, and orderable calculation only
 async function transformData(records, processConfig) {
-	const { fieldMapping, stockThreshold = 1, priceFields = {}, stockFields = {} } = processConfig;
+  const {
+    fieldMapping,
+    stockThreshold = 1,
+    priceFields = {},
+    stockFields = {},
+    weightFields = {}, 
+  } = processConfig;
 
-	return records.map((record) => {
-		const transformed = {};
-		// 1) Field mapping (except priceFields.feed / stockFields.feed)
-		for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
-			// Ha ez a mező a priceFields.feed vagy stockFields.feed, kihagyjuk
-			if (srcKey === priceFields.feed || srcKey === stockFields.feed) continue;
-			const dst = String(dstKey || '');
-			transformed[dst] = record[srcKey];
-		}
+  return records.map((record) => {
+    const transformed = {};
 
-		// 2) Price mező explicit másolása, ha létezik
-		if (priceFields.feed && record.hasOwnProperty(priceFields.feed)) {
-			transformed[priceFields.feed] = record[priceFields.feed];
-		}
-		// 3) Stock mező explicit másolása, ha létezik
-		if (stockFields.feed && record.hasOwnProperty(stockFields.feed)) {
-			transformed[stockFields.feed] = record[stockFields.feed];
-		}
+    // 1) Field mapping (kivéve a price/stock/weight feed mezőket)
+    for (const [srcKey, dstKey] of Object.entries(fieldMapping)) {
+      if (
+        srcKey === priceFields.feed ||
+        srcKey === stockFields.feed ||
+        srcKey === weightFields.feed 
+      ) {
+        continue;
+      }
+      const dst = String(dstKey || '');
+      transformed[dst] = record[srcKey];
+    }
 
-		// orderable számítása stockFields.feed alapján
-		const stockSrcKey = stockFields.feed;
-		if (stockSrcKey) {
-			const raw = record[stockSrcKey];
-			let feedStock = 0;
-			if (raw !== undefined && raw !== null && raw !== '') {
-				const cleaned = String(raw).replace(',', '.').replace(/[^0-9.\-]/g, '').trim();
-				const n = Number(cleaned);
-				feedStock = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
-			}
-			if (Number.isFinite(stockThreshold) && feedStock >= stockThreshold) {
-				transformed.orderable = 1;
-			} else {
-				transformed.orderable = 0;
-			}
-		}
+    // 2) Price mező explicit másolása, ha létezik (eredeti feed kulcson)
+    if (priceFields.feed && Object.prototype.hasOwnProperty.call(record, priceFields.feed)) {
+      transformed[priceFields.feed] = record[priceFields.feed];
+    }
 
-		return transformed;
-	});
+    // 3) Stock mező explicit másolása, ha létezik (eredeti feed kulcson)
+    if (stockFields.feed && Object.prototype.hasOwnProperty.call(record, stockFields.feed)) {
+      transformed[stockFields.feed] = record[stockFields.feed];
+    }
+
+    // 4) Weight mező explicit másolása, ha létezik (eredeti feed kulcson) 
+    if (weightFields.feed && Object.prototype.hasOwnProperty.call(record, weightFields.feed)) {
+      transformed[weightFields.feed] = record[weightFields.feed];
+    }
+
+    // 5) orderable számítása stockFields.feed alapján (marad, ahogy volt)
+    const stockSrcKey = stockFields.feed;
+    if (stockSrcKey) {
+      const raw = record[stockSrcKey];
+      let feedStock = 0;
+      if (raw !== undefined && raw !== null && raw !== '') {
+        const cleaned = String(raw).replace(',', '.').replace(/[^0-9.\-]/g, '').trim();
+        const n = Number(cleaned);
+        feedStock = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+      }
+      transformed.orderable = Number.isFinite(stockThreshold) && feedStock >= stockThreshold ? 1 : 0;
+    }
+
+    return transformed;
+  });
 }
 
 module.exports = transformData;

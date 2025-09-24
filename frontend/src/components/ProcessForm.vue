@@ -362,9 +362,6 @@
 					/></el-icon>
 					<strong>Új mezők hozzáadása</strong>
 				</el-button>
-				<el-tag v-if="unasMeta?.source" size="small" type="info">
-					{{ unasMeta.source === 'cache' ? 'Cache' : 'UNAS' }}
-				</el-tag>
 
 				<el-tooltip
 					content="Ha változtak a mezők az UNAS-ban, akkor frissíteni kell"
@@ -985,7 +982,7 @@
 				form.fieldMapping = fm;
 				form.fieldMappingOrder = order;
 
-				// Kulcs, ár, készlet mezőpárok mentése (mindegyikből max 1)
+				// Kulcs, ár, készlet, súly mezőpárok mentése (mindegyikből max 1)
 				// Kulcs mező
 				form.keyFields = {
 					feed: mappingKeys[selectedKeyIndex.value] || '',
@@ -1011,7 +1008,7 @@
 				} else {
 					form.stockFields = { feed: '', unas: '' };
 				}
-				// Szállítási költség mező (első shipping típusú sor)
+				// Súly mező (első weight típusú sor)
 				const weightIdx = fieldTypes.value.findIndex((t) => t === 'weight');
 				if (weightIdx !== -1) {
 					form.weightFields = {
@@ -1088,6 +1085,7 @@
 				focusInput,
 				syncShippingType,
 				shippingByWeight,
+
 
 			};
 		},
@@ -1186,6 +1184,11 @@
 	.fieldtype-input.stock {
 		background: #fffbe4 !important;
 		border: 1px solid #ffe996 !important;
+	}
+	.fieldtype-select.weight,
+	.fieldtype-input.weight {
+		background: #eedbff !important;
+		border: 1px solid #ce99ff !important;
 	}
 	.fieldtype-popper .el-select-dropdown__item.selected {
 		font-weight: bold;

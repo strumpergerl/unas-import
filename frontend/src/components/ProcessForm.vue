@@ -126,6 +126,12 @@
 							@click="addToken('{vat}')"
 							>ÁFA</el-button
 						>
+						<el-button
+							size="small"
+							:disabled="used.shipping"
+							@click="addToken('{shipping}')"
+							>Szállítás</el-button
+						>
 					</div>
 
 					<div class="token-group">
@@ -173,6 +179,45 @@
 			</el-input-number>
 		</el-form-item>
 
+		<el-form-item label="Szállítási költség">
+			<div
+				class="shipping-input"
+				style="display: flex; justify-content: space-between; width: 250px"
+			>
+				<el-input-number
+					v-model="form.shippingValue"
+					:min="0"
+					:step="100"
+					:precision="0"
+					controls-position="right"
+					style="max-width: 150px"
+				>
+					<template #suffix><span>Ft</span></template>
+				</el-input-number>
+
+				<span
+					v-if="shippingByWeight"
+					class="mul-sign"
+					style="position: relative"
+					><el-icon
+						style="
+							position: absolute;
+							top: 50%;
+							transform: translateY(-50%) translateX(-50%);
+							left: 100%;
+						"
+						><CloseBold /></el-icon
+				></span>
+				<el-checkbox-button
+					v-model="shippingByWeight"
+					@change="syncShippingType"
+					class="weight-checkbox"
+				>
+					súly
+				</el-checkbox-button>
+			</div>
+		</el-form-item>
+
 		<el-form-item label="Kerekítés helyiértékre">
 			<el-button-group>
 				<el-button
@@ -194,7 +239,7 @@
 		</el-form-item>
 
 		<el-divider></el-divider>
-
+		
 		<el-form-item
 			label="Mezők hozzáadása"
 			label-position="top"
@@ -207,7 +252,8 @@
 				:class="{
 					'active-key-row': selectedKeyIndex === i,
 					'active-price-row': fieldTypes[i] === 'price',
-					'active-stock-row': fieldTypes[i] === 'stock'
+					'active-stock-row': fieldTypes[i] === 'stock',
+					'active-weight-row': fieldTypes[i] === 'weight',
 				}"
 				style="margin-bottom: 1rem"
 			>
@@ -220,7 +266,6 @@
 						@change="onFieldTypeChange(i)"
 						:popper-class="'fieldtype-popper'"
 					>
-
 						<el-option :value="'view'" label="Alap">
 							<template #default>
 								<el-icon><View /></el-icon> Alap
@@ -239,6 +284,11 @@
 						<el-option :value="'stock'" label="Készlet">
 							<template #default>
 								<el-icon><Box /></el-icon> Készlet
+							</template>
+						</el-option>
+						<el-option :value="'weight'" label="Súly">
+							<template #default
+								><el-icon><TrendCharts /></el-icon> Súly
 							</template>
 						</el-option>
 					</el-select>
@@ -272,7 +322,7 @@
 						v-model="mappingValues[i]"
 						filterable
 						remote
-						:remote-method="onSelectFilter"
+						:filter-method="onSelectFilter"
 						:loading="unasFieldsLoading"
 						placeholder="UNAS mező keresése…"
 						class="w-full"
@@ -312,16 +362,39 @@
 					/></el-icon>
 					<strong>Új mezők hozzáadása</strong>
 				</el-button>
+				<el-tag v-if="unasMeta?.source" size="small" type="info">
+					{{ unasMeta.source === 'cache' ? 'Cache' : 'UNAS' }}
+				</el-tag>
+
+				<el-tooltip
+					content="Ha változtak a mezők az UNAS-ban, akkor frissíteni kell"
+					placement="top"
+				>
+					<el-button
+						:loading="unasFieldsLoading"
+						size="small"
+						icon="Refresh"
+						@click="refreshUnasFields"
+						style="position: absolute; right: 10px; bottom: 10px"
+					>
+						UNAS mezők frissítése
+					</el-button>
+				</el-tooltip>
 			</div>
 		</el-form-item>
+
 
 		<div class="hint" style="margin-bottom: 1rem">
 			<el-icon size="large" style="vertical-align: middle; margin-right: 4px">
 				<InfoFilled />
 			</el-icon>
 			Itt tudod összerendelni a feed mezőit az UNAS mezőkkel. A
-			<strong><el-icon style="vertical-align: middle"><Lock /></el-icon> Kulcs</strong> selecttel
-			jelölheted ki a kulcs mezőt, ami alapján az összerendelés történik.
+			<strong
+				><el-icon style="vertical-align: middle"><Lock /></el-icon>
+				Kulcs</strong
+			>
+			selecttel jelölheted ki a kulcs mezőt, ami alapján az összerendelés
+			történik.
 		</div>
 
 		<div style="padding: 20px; background: #f5f5f5" class="form-actions">
@@ -355,7 +428,6 @@
 		onMounted,
 	} from 'vue';
 	import api from '../services/api';
-	import { Lock, Money, Box, View } from '@element-plus/icons-vue';
 
 	export default {
 		name: 'ProcessForm',
@@ -370,6 +442,18 @@
 		setup(props, { emit }) {
 			const form = reactive({ vat: 27, stockThreshold: 1, ...props.initial });
 
+			// --- Shipping state ---
+			const shippingByWeight = ref((form.shippingType || 'fixed') === 'weight');
+
+			// ha kezdetben nincs beállítva, adjunk defaultot
+			if (!('shippingType' in form)) form.shippingType = 'fixed';
+			if (typeof form.shippingValue !== 'number') form.shippingValue = 0;
+
+			// checkbox váltásakor tartsuk szinkronban a form mezőt
+			function syncShippingType() {
+				form.shippingType = shippingByWeight.value ? 'weight' : 'fixed';
+			}
+
 			// Kulcs mező (keyField) kezelése
 			const selectedKeyIndex = ref(0);
 			// Ha van keyFields, állítsuk be a selectedKeyIndex-et a megfelelő mezőre
@@ -383,6 +467,7 @@
 			// Aktív shop név
 			const activeShopIdRef = toRef(props, 'activeShopId'); // reaktív
 			const userRef = toRef(props, 'user');
+			const showRef = toRef(props, 'show');
 			const safeShopId = computed(() => String(activeShopIdRef.value || ''));
 
 			const activeShopName = computed(() => {
@@ -390,6 +475,91 @@
 					(x) => x.shopId === safeShopId.value
 				);
 				return s ? s.name : safeShopId.value || '–';
+			});
+
+			let unasAbort = null;
+			const unasMeta = reactive({ source: '', updatedAt: null });
+
+			function formatDate(iso) {
+				try {
+					return new Date(iso).toLocaleString('hu-HU');
+				} catch {
+					return iso || '';
+				}
+			}
+
+			async function loadUnasFields(shopId, processId, { force = false } = {}) {
+				if (!shopId || !userRef.value) {
+					unasOptions.value = [];
+					return;
+				}
+				try {
+					unasFieldsLoading.value = true;
+					if (unasAbort) unasAbort.abort();
+					unasAbort = new AbortController();
+
+					const pid =
+						(form.processId || props.initial.processId || '').trim() ||
+						undefined;
+					const resp = await api.getUnasFields(shopId, pid, {
+						refresh: !!force,
+						signal: unasAbort.signal,
+					});
+					const json = resp.data || {};
+
+					// json.fields → cache vagy friss adat Firestore-ból
+					let list = Array.isArray(json?.fields)
+						? json.fields
+								.map((f) =>
+									typeof f === 'string' ? f : f.label ?? f.key ?? ''
+								)
+								.filter(Boolean)
+						: [];
+
+					// fallback CSV header maradhat, ha az API valaha így szolgáltatna
+					if (list.length === 1 && /",".+","/.test(list[0])) {
+						const headerLine = list[0];
+						list = headerLine
+							.replace(/^\s*"/, '')
+							.replace(/"\s*$/, '')
+							.split(/"\s*,\s*"/)
+							.map((s) => s.trim())
+							.filter(Boolean);
+					}
+
+					unasOptions.value = list.map((label) => ({
+						label: String(label ?? '').trim(),
+						value: String(label ?? '').trim(),
+						_n: normalize(label),
+					}));
+
+					// meta
+					unasMeta.source = json.source || '';
+					unasMeta.updatedAt = json.updatedAt || null;
+				} catch (e) {
+					if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') return;
+					console.error('UNAS mezők betöltése sikertelen:', e);
+					// opcionális UX
+					// ElMessage?.error?.('UNAS mezők betöltése sikertelen.');
+				} finally {
+					unasFieldsLoading.value = false;
+				}
+			}
+
+			async function refreshUnasFields() {
+				await loadUnasFields(
+					safeShopId.value,
+					form.processId || props.initial.processId,
+					{ force: true }
+				);
+			}
+
+			// ha a modál/komponens bezárul, állítsuk le a folyamatban lévő kérést:
+			watch(showRef, (show) => {
+				if (!show && unasAbort) {
+					unasAbort.abort();
+					unasAbort = null;
+				}
 			});
 
 			// ---- Mapping állapot (NINCS kötelező default) ----
@@ -435,54 +605,76 @@
 				updateSelectedKeyIndex();
 			});
 
-			   // --- Field type state for each mapping row ---
-			   const fieldTypes = ref([]);
+			// --- Field type state for each mapping row ---
+			const fieldTypes = ref([]);
 
-			   function syncFieldTypes() {
-				   // 1. explicit típusok beállítása, ha vannak
-				   for (let i = 0; i < mappingKeys.length; ++i) {
-					   const feedKey = mappingKeys[i];
-					   const unasKey = mappingValues[i];
-					   // key
-					   if (form.keyFields && form.keyFields.feed === feedKey && form.keyFields.unas === unasKey) {
-						   fieldTypes.value[i] = 'key';
-						   continue;
-					   }
-					   // price
-					   if (form.priceFields && form.priceFields.feed === feedKey && form.priceFields.unas === unasKey) {
-						   fieldTypes.value[i] = 'price';
-						   continue;
-					   }
-					   // stock
-					   if (form.stockFields && form.stockFields.feed === feedKey && form.stockFields.unas === unasKey) {
-						   fieldTypes.value[i] = 'stock';
-						   continue;
-					   }
-				   }
-				   while (fieldTypes.value.length > mappingKeys.length) fieldTypes.value.pop();
-			   }
-			   // Init
-			   syncFieldTypes();
-			   // Keep fieldTypes in sync with mapping rows
-			   watch([mappingKeys, mappingValues], () => {
-				   syncFieldTypes();
-			   });
-			   // When a row is set to 'key', unset all others
-			   function onFieldTypeChange(idx) {
-				   if (fieldTypes.value[idx] === 'key') {
-					   fieldTypes.value.forEach((t, i) => {
-						   if (i !== idx && t === 'key') fieldTypes.value[i] = 'view';
-					   });
-					   selectedKeyIndex.value = idx;
-				   }
-			   }
-			   // If selectedKeyIndex changes, update fieldTypes
-			   watch(selectedKeyIndex, (idx) => {
-				   fieldTypes.value.forEach((t, i) => {
-					   if (i === idx) fieldTypes.value[i] = 'key';
-					   else if (t === 'key') fieldTypes.value[i] = 'view';
-				   });
-			   });
+			function syncFieldTypes() {
+				// 1. explicit típusok beállítása, ha vannak
+				for (let i = 0; i < mappingKeys.length; ++i) {
+					const feedKey = mappingKeys[i];
+					const unasKey = mappingValues[i];
+					// key
+					if (
+						form.keyFields &&
+						form.keyFields.feed === feedKey &&
+						form.keyFields.unas === unasKey
+					) {
+						fieldTypes.value[i] = 'key';
+						continue;
+					}
+					// price
+					if (
+						form.priceFields &&
+						form.priceFields.feed === feedKey &&
+						form.priceFields.unas === unasKey
+					) {
+						fieldTypes.value[i] = 'price';
+						continue;
+					}
+					// stock
+					if (
+						form.stockFields &&
+						form.stockFields.feed === feedKey &&
+						form.stockFields.unas === unasKey
+					) {
+						fieldTypes.value[i] = 'stock';
+						continue;
+					}
+					// weight
+					if (
+						form.weightFields &&
+						form.weightFields.feed === feedKey &&
+						form.weightFields.unas === unasKey
+					) {
+						fieldTypes.value[i] = 'weight';
+						continue;
+					}
+				}
+				while (fieldTypes.value.length > mappingKeys.length)
+					fieldTypes.value.pop();
+			}
+			// Init
+			syncFieldTypes();
+			// Keep fieldTypes in sync with mapping rows
+			watch([mappingKeys, mappingValues], () => {
+				syncFieldTypes();
+			});
+			// When a row is set to 'key', unset all others
+			function onFieldTypeChange(idx) {
+				if (fieldTypes.value[idx] === 'key') {
+					fieldTypes.value.forEach((t, i) => {
+						if (i !== idx && t === 'key') fieldTypes.value[i] = 'view';
+					});
+					selectedKeyIndex.value = idx;
+				}
+			}
+			// If selectedKeyIndex changes, update fieldTypes
+			watch(selectedKeyIndex, (idx) => {
+				fieldTypes.value.forEach((t, i) => {
+					if (i === idx) fieldTypes.value[i] = 'key';
+					else if (t === 'key') fieldTypes.value[i] = 'view';
+				});
+			});
 
 			const dryRun = ref(form.dryRun || false);
 
@@ -498,153 +690,102 @@
 					.replace(/[\u0300-\u036f]/g, ''); // ékezetek nélkül
 			}
 
-			function detectGroup(label) {
-				// const l = normalize(label);
-				const l = String(label || '');
+			// Gyakran használt mezők listája
+			const FREQUENT_MATCHERS = [
+				(l) =>
+					l.startsWith('paraméter: beszerzési helyen a cikkszáma') ||
+					l.startsWith('parameter: beszerzesi helyen a cikkszama'),
+				(l) => l === 'bruttó ár' || l === 'brutto ar',
+				(l) => l === 'nettó ár' || l === 'netto ar',
+				(l) => l === 'raktárkészlet' || l === 'raktarkeszlet',
+				(l) =>
+					l.startsWith('paraméter: súlya') || l.startsWith('parameter: sulya'),
+			];
 
-				// Paraméterek
-				if (
-					l.startsWith('parameter:') ||
-					l.startsWith('paraméter:') ||
-					l.startsWith('paramater:') ||
-					l.includes('parameter|')
-				)
-					return 'Paraméterek';
-
-				// Ár csoportok
-				if (
-					l.startsWith('ar:') ||
-					l.startsWith('ár:') ||
-					l.includes('ar tipus') ||
-					l.includes('ár típus')
-				)
-					return 'Ár csoportok';
-
-				// Alap mezők
-				const baseKeys = [
-					'cikkszam',
-					'cikkszám',
-					'termek nev',
-					'termék név',
-					'netto ar',
-					'nettó ár',
-					'brutto ar',
-					'bruttó ár',
-					'raktarkeszlet',
-					'raktárkészlet',
-					'kategoria',
-					'kategória',
-					'rovid leiras',
-					'rövid leírás',
-					'link',
-					'kep',
-					'kép',
-					'seo',
-					'sef url',
-					'egyseg',
-					'egység',
-				];
-				if (baseKeys.some((k) => l.includes(k))) return 'Alap mezők';
-
-				return 'Egyéb';
+			function frequentRank(label) {
+				const l = normalize(label);
+				for (let i = 0; i < FREQUENT_MATCHERS.length; i++) {
+					if (FREQUENT_MATCHERS[i](l)) return i; // 0..4
+				}
+				return -1; // nem gyakori
 			}
 
-			async function loadUnasFields(shopId, processId) {
-				console.log('user:', userRef.value);
-				if (!shopId || !userRef.value) {
-					unasOptions.value = [];
-					return;
-				}
-				try {
-					unasFieldsLoading.value = true;
-					const pid = (form.processId || props.initial.processId || '').trim() || undefined;
-					const resp = await api.getUnasFields(shopId, pid);
-					const json = resp.data;
-					console.log('UNAS fields API response:', json);
-					// 1) listába szedjük (stringek)
-					let list = Array.isArray(json?.fields)
-						? json.fields
-								.map((f) =>
-									typeof f === 'string' ? f : f.label ?? f.key ?? ''
-								)
-								.filter(Boolean)
-						: [];
-
-					// 2) Fallback: ha egyben CSV-sor jön, vágjuk el itt
-					if (list.length === 1 && /",".+","/.test(list[0])) {
-						const headerLine = list[0];
-						list = headerLine
-							.replace(/^\s*"/, '')
-							.replace(/"\s*$/, '')
-							.split(/"\s*,\s*"/)
-							.map((s) => s.trim())
-							.filter(Boolean);
-					}
-
-					// 3) Opciók + csoport címkézés
-					unasOptions.value = list.map((label) => {
-						const s = String(label ?? '').trim();
-						return {
-							label: s,
-							value: s,
-							group: detectGroup(s),
-							_n: normalize(s),
-						};
-					});
-				} catch (e) {
-					console.error('UNAS mezők betöltése sikertelen:', e);
-					unasOptions.value = [];
-				} finally {
-					unasFieldsLoading.value = false;
-				}
+			function isFrequent(label) {
+				return frequentRank(label) >= 0;
 			}
 
-			// Csoportosított opciók (mindig újrarajzolja)
 			const groupedOptions = computed(() => {
-				const groups = new Map(); // label -> { label, options: [] }
-				for (const opt of unasOptions.value) {
-					if (!groups.has(opt.group))
-						groups.set(opt.group, { label: opt.group, options: [] });
-					groups.get(opt.group).options.push(opt);
+				const frequent = [];
+				const others = [];
+
+				for (const opt of unasOptions.value || []) {
+					const r = frequentRank(opt.label);
+					if (r >= 0) {
+						frequent.push({ ...opt, _rank: r });
+					} else {
+						others.push(opt);
+					}
 				}
-				// rendezzük: Alap mezők, Ár csoportok, Paraméterek, Egyéb
-				const order = ['Alap mezők', 'Ár csoportok', 'Paraméterek', 'Egyéb'];
-				return [...groups.values()].sort(
-					(a, b) => order.indexOf(a.label) - order.indexOf(b.label)
-				);
+
+				// A „Gyakran használt” listán belül a megadott fix sorrend (rank szerint)
+				frequent.sort((a, b) => a._rank - b._rank);
+
+				// Két csoportos visszatérés a select-hez
+				const groups = [];
+				if (frequent.length) {
+					groups.push({
+						label: 'Gyakran használt',
+						options: frequent.map(({ _rank, ...o }) => o),
+					});
+				}
+				if (others.length) {
+					groups.push({ label: 'Egyéb', options: others });
+				}
+				return groups;
 			});
 
 			const filterQuery = ref('');
-
 			function onSelectFilter(query) {
 				filterQuery.value = query || '';
 			}
 
 			const groupedOptionsFiltered = computed(() => {
 				const q = normalize(filterQuery.value);
-				const list = q
+				const base = q
 					? (unasOptions.value || []).filter((o) => o._n.includes(q))
 					: unasOptions.value || [];
 
-				const groups = new Map();
-				for (const opt of list) {
-					if (!groups.has(opt.group))
-						groups.set(opt.group, { label: opt.group, options: [] });
-					groups.get(opt.group).options.push(opt);
+				const frequent = [];
+				const others = [];
+				for (const opt of base) {
+					const r = frequentRank(opt.label);
+					if (r >= 0) frequent.push({ ...opt, _rank: r });
+					else others.push(opt);
 				}
-				const order = ['Alap mezők', 'Ár csoportok', 'Paraméterek', 'Egyéb'];
-				return [...groups.values()].sort(
-					(a, b) => order.indexOf(a.label) - order.indexOf(b.label)
-				);
+				frequent.sort((a, b) => a._rank - b._rank);
+
+				const groups = [];
+				if (frequent.length) {
+					groups.push({
+						label: 'Gyakran használt',
+						options: frequent.map(({ _rank, ...o }) => o),
+					});
+				}
+				if (others.length) {
+					groups.push({ label: 'Egyéb', options: others });
+				}
+				return groups;
 			});
 
 			// Modal megnyitásakor töltünk csak, ha van user és shopId
 
-			const showRef = toRef(props, 'show');
 			watch([showRef, userRef, safeShopId], ([show, user, shopId]) => {
 				console.log('watcher fired', { show, user, shopId });
-				if (show && user && shopId) {
-					loadUnasFields(shopId, form.processId || props.initial.processId);
+				if (props.show && userRef.value && form.shopId) {
+					loadUnasFields(
+						form.shopId,
+						form.processId || props.initial.processId
+					);
 				} else if (!show) {
 					unasOptions.value = [];
 				}
@@ -657,7 +798,10 @@
 					shopId: form.shopId,
 				});
 				if (props.show && userRef.value && form.shopId)
-					loadUnasFields(form.shopId, form.processId || props.initial.processId);
+					loadUnasFields(
+						form.shopId,
+						form.processId || props.initial.processId
+					);
 			});
 
 			// ---- FEED mezőlista (CSV / XLSX / XML) ----
@@ -736,6 +880,7 @@
 				'{discount}',
 				'{priceMargin}',
 				'{vat}',
+				'{shipping}',
 			];
 			const OP_TOKENS = ['+', '-', '*', '/', '(', ')', ' '];
 			const DISPLAY_MAP = {
@@ -743,6 +888,7 @@
 				'{discount}': 'Kedvezmény',
 				'{priceMargin}': 'Árrés',
 				'{vat}': 'ÁFA',
+				'{shipping}': 'Szállítás',
 				'+': '+',
 				'-': '−',
 				'*': '×',
@@ -765,6 +911,7 @@
 				discount: pricingTokens.value.includes('{discount}'),
 				priceMargin: pricingTokens.value.includes('{priceMargin}'),
 				vat: pricingTokens.value.includes('{vat}'),
+				shipping: pricingTokens.value.includes('{shipping}'),
 			}));
 
 			function displayToken(token) {
@@ -838,7 +985,6 @@
 				form.fieldMapping = fm;
 				form.fieldMappingOrder = order;
 
-
 				// Kulcs, ár, készlet mezőpárok mentése (mindegyikből max 1)
 				// Kulcs mező
 				form.keyFields = {
@@ -865,6 +1011,16 @@
 				} else {
 					form.stockFields = { feed: '', unas: '' };
 				}
+				// Szállítási költség mező (első shipping típusú sor)
+				const weightIdx = fieldTypes.value.findIndex((t) => t === 'weight');
+				if (weightIdx !== -1) {
+					form.weightFields = {
+						feed: mappingKeys[weightIdx] || '',
+						unas: mappingValues[weightIdx] || '',
+					};
+				} else {
+					form.weightFields = { feed: '', unas: '' };
+				}
 
 				form.pricingFormula = tokensToText(pricingTokens.value);
 
@@ -879,52 +1035,61 @@
 						.slice(0, 19)}`;
 				}
 				// A processId-t mindig a Firestore doc id-jára kell állítani, hogy a listázás működjön
-				emit('save', { ...form, supplierName: form.supplierName, processId: form.processId });
+				emit('save', {
+					...form,
+					supplierName: form.supplierName,
+					processId: form.processId,
+				});
 			}
 
-			// fieldMappingOrder NINCS visszaadva külön, csak a form részeként
-			   return {
-				   form,
-				   selectedKeyIndex,
-				   mappingKeys,
-				   mappingValues,
-				   removeMapping,
-				   addMapping,
-				   submit,
-				   activeShopName,
-				   activeShopId: safeShopId,
-				   fieldTypes,
-				   onFieldTypeChange,
+			return {
+				form,
+				selectedKeyIndex,
+				mappingKeys,
+				mappingValues,
+				removeMapping,
+				addMapping,
+				submit,
+				activeShopName,
+				activeShopId: safeShopId,
+				fieldTypes,
+				onFieldTypeChange,
 
-				   // UNAS mezőlista
-				   unasAllFields,
-				   unasFieldsLoading,
-				   unasOptions,
-				   groupedOptions,
-				   filterQuery,
-				   groupedOptionsFiltered,
-				   onSelectFilter,
-				   feedOptions,
-				   feedOptionsFiltered,
-				   feedFieldsLoading,
-				   onFeedFilter,
+				// UNAS mezőlista
+				unasAllFields,
+				unasFieldsLoading,
+				unasOptions,
+				groupedOptions,
+				filterQuery,
+				groupedOptionsFiltered,
+				onSelectFilter,
+				feedOptions,
+				feedOptionsFiltered,
+				feedFieldsLoading,
+				onFeedFilter,
+				refreshUnasFields,
+				unasMeta,
+				formatDate,
 
-				   // képlet UI
-				   pricingTokens,
-				   numberDraft,
-				   used,
-				   addToken,
-				   removeToken,
-				   clearFormula,
-				   addNumberDraft,
-				   isOperator,
-				   displayToken,
-				   pricingInputValue,
-				   pricingPlaceholder,
-				   pricingInputRef,
-				   handleBackspace,
-				   focusInput,
-			   };
+				// képlet UI
+				pricingTokens,
+				numberDraft,
+				used,
+				addToken,
+				removeToken,
+				clearFormula,
+				addNumberDraft,
+				isOperator,
+				displayToken,
+				pricingInputValue,
+				pricingPlaceholder,
+				pricingInputRef,
+				handleBackspace,
+				focusInput,
+				syncShippingType,
+				shippingByWeight,
+
+			};
 		},
 	};
 
@@ -932,14 +1097,13 @@
 	function textToTokens(text) {
 		if (!text) return [];
 		const tokenRegex =
-			/(\{basePrice\}|\{discount\}|\{priceMargin\}|\{vat\}|\+|\-|\*|\/|\(|\)|\s+|\d+(?:\.\d+)?)/g;
+			/(\{basePrice\}|\{discount\}|\{priceMargin\}|\{vat\}|\{shipping\}|\+|\-|\*|\/|\(|\)|\s+|\d+(?:\.\d+)?)/g;
 		const raw = text.match(tokenRegex) || [];
 		return raw.filter((t) => t !== '');
 	}
 	function tokensToText(tokens) {
 		return tokens.join('');
 	}
-
 </script>
 
 <style scoped>
@@ -1026,6 +1190,20 @@
 	.fieldtype-popper .el-select-dropdown__item.selected {
 		font-weight: bold;
 	}
+	.shipping-input {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.mul-sign {
+		font-weight: 600;
+		user-select: none;
+	}
+	.unit {
+		color: #666;
+		font-size: 12px;
+		margin-left: 4px;
+	}
 </style>
 
 <style>
@@ -1057,17 +1235,18 @@
 	}
 	.mapping-row.active-key-row .el-select__wrapper {
 		background: #e4fde4 !important;
-		/* border: 1px solid #96ff96 !important; */
 		transition: background 0.2s;
 	}
 	.mapping-row.active-price-row .el-select__wrapper {
 		background: #e4f0fd !important;
-		/* border: 1px solid #96cfff !important; */
 		transition: background 0.2s;
 	}
 	.mapping-row.active-stock-row .el-select__wrapper {
 		background: #fffbe4 !important;
-		/* border: 1px solid #ffe996 !important; */
+		transition: background 0.2s;
+	}
+	.mapping-row.active-weight-row .el-select__wrapper {
+		background: hsl(271, 100%, 93%) !important;
 		transition: background 0.2s;
 	}
 
@@ -1079,5 +1258,8 @@
 	}
 	.form-actions .el-form-item__content button {
 		flex-grow: 1;
+	}
+	.weight-checkbox .el-checkbox-button__inner {
+		border: 1px solid var(--el-border-color-light);
 	}
 </style>

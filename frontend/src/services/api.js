@@ -39,7 +39,9 @@ api.interceptors.request.use(async (config) => {
 		(config.url.includes('/Listen') || config.url.includes('/Watch'));
 	const isFieldLoading =
 		typeof config.url === 'string' &&
-		(/\/unas\/fields/.test(config.url) || /\/feed\/headers/.test(config.url) || /\/rates$/.test(config.url));
+		(/\/unas\/fields/.test(config.url) ||
+			/\/feed\/headers/.test(config.url) ||
+			/\/rates$/.test(config.url));
 	if (!isFirestoreListen && !isFieldLoading) {
 		activeRequests++;
 		show();
@@ -57,7 +59,9 @@ api.interceptors.response.use(
 				resp.config.url.includes('/Watch'));
 		const isFieldLoading =
 			typeof resp.config?.url === 'string' &&
-			(/\/unas\/fields/.test(resp.config.url) || /\/feed\/headers/.test(resp.config.url) || /\/rates$/.test(resp.config.url));
+			(/\/unas\/fields/.test(resp.config.url) ||
+				/\/feed\/headers/.test(resp.config.url) ||
+				/\/rates$/.test(resp.config.url));
 		if (!isFirestoreListen && !isFieldLoading) {
 			activeRequests--;
 			if (activeRequests <= 0) activeRequests = 0;
@@ -100,16 +104,21 @@ export default {
 	getConfig: () => api.get('/config'),
 	saveConfig: (data) => api.post('/config', data),
 	deleteConfig: (id) => api.delete(`/config/${id}`),
-  	runProcess: (id, records, overrides = {}) =>
+	runProcess: (id, records, overrides = {}) =>
 		api.post('/run', {
-		processId: id,
-		records,
-		...overrides, // pl. { keyFields, priceFields, stockFields, dryRun }
+			processId: id,
+			records,
+			...overrides, 
 		}),
 	runProcessById: (id) => api.post('/run', { processId: id }),
 	getLogs: () => api.get('/logs'),
 	getRates: () => api.get('/rates'),
 	getFeedHeaders: (url) => api.get('/feed/headers', { params: { url } }),
-	getUnasFields: (shopId, processId) =>
-		api.get('/unas/fields', { params: { shopId, processId } }),
+	getUnasFields(shopId, processId, { refresh = false, signal } = {}) {
+		return api.get('/unas/fields', {
+			params: { shopId, processId, refresh: refresh ? 1 : undefined },
+			timeout: 180000,
+			signal, 
+		})
+	},
 };

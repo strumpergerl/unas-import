@@ -40,11 +40,13 @@ const builder = new xml2js.Builder({ headless: true });
 const keepAliveHttp = new http.Agent({ keepAlive: true, maxSockets: 20 });
 const keepAliveHttps = new https.Agent({ keepAlive: true, maxSockets: 20 });
 
-const toPosNumberString = (v) => {
+const toPosNumberString = (v, decimals = null) => {
 	const n = Number(v);
 	if (!Number.isFinite(n)) return '0';
-	return Math.max(0, n).toString();
+	const p = Math.max(0, n);
+	return decimals == null ? String(p) : p.toFixed(decimals);
 };
+
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const hash = (obj) =>
 	crypto
@@ -127,7 +129,7 @@ function ensureNetGross(item, processConfig) {
 
 		net = Math.max(0, net);
 		gross = Math.max(0, gross);
-		
+
 		return {
 			net,
 			gross,
@@ -542,16 +544,17 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		let net = netGross.net;
 		let gross = netGross.gross;
 
+		const round4 = (x) => Math.round(x * 10000) / 10000;
+
 		if (processConfig?.rounding && processConfig.rounding > 0) {
 			const factor = Math.max(1, Number(processConfig.rounding) || 0);
-			const grossRounded = Math.ceil(gross / factor) * factor;
-			const netRounded = Math.round(grossRounded / vatFactor);
+			const grossRounded = Math.ceil(gross / factor) * factor; // lépcsőre kerekített bruttó (egész)
 			gross = grossRounded;
-			net = netRounded;
+			net = round4(gross / vatFactor); // nettó 2 tizedes
 		} else {
-			// ha nincs lépcsőzés, akkor sima kerekítés egészre
+			// bruttó marad egészre kerekítve, nettó 2 tizedes a bruttóból
 			gross = Math.round(gross);
-			net = Math.round(net);
+			net = round4(gross / vatFactor);
 		}
 
 		console.log('[UNAS][DEBUG][computedPrices]', {
@@ -637,7 +640,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		productNode.Prices = {
 			Price: {
 				Type: 'normal',
-				Net: toPosNumberString(net),
+				Net: toPosNumberString(net, 4), 
 				Gross: toPosNumberString(gross),
 				Currency: currency,
 				Actual: '1',

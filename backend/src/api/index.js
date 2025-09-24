@@ -95,51 +95,71 @@ router.use((req, res, next) => {
 });
 
 // --- /unas/fields cache ---
-const unasFieldsCache = new Map(); // kulcs: shopId|processId, érték: { ts, data }
-const UNAS_FIELDS_CACHE_TTL_MS = 30 * 1000;
+// const unasFieldsCache = new Map(); // kulcs: shopId|processId, érték: { ts, data }
+
+async function fetchAndStoreUnasFields(shopId, processId) {
+  const shop = await loadShopById(shopId);
+  const { apiKey } = shop;
+
+  let paramsXml = null;
+  if (processId) {
+    const doc = await db.collection('processes').doc(String(processId)).get();
+    if (doc.exists) {
+      const pc = doc.data() || {};
+      paramsXml = pc?.productDb?.paramsXml || pc?.unas?.productDb?.paramsXml || null;
+    }
+  }
+
+  const { headers } = await fetchProductDbHeaders({ apiKey, paramsXml });
+  const fields = headers.map(h => ({
+    key: String(h.key || h),
+    label: String(h.label || h),
+    id: h.id !== undefined ? String(h.id) : null,
+  }));
+
+  const payload = {
+    shopId,
+    fields,
+    count: fields.length,
+    updatedAt: new Date().toISOString(),
+  };
+  await db.collection('unasFields').doc(String(shopId)).set(payload, { merge: true });
+  return payload;
+}
+
+// --- UNAS mezők (Firestore cache + opciós refresh) ---
+const UNAS_FIELDS_TTL_MS = Number(process.env.UNAS_FIELDS_TTL_MS || 24 * 60 * 60 * 1000); // 24h
 
 router.get('/unas/fields', async (req, res) => {
-	try {
-		const { shopId, processId } = req.query || {};
-		if (!shopId) throw new BadRequestError('shopId szükséges');
+  try {
+    const { shopId, processId, refresh } = req.query || {};
+    if (!shopId) throw new BadRequestError('shopId szükséges');
 
-		const cacheKey = `${shopId}|${processId || ''}`;
-		const now = Date.now();
-		const cached = unasFieldsCache.get(cacheKey);
-		if (cached && now - cached.ts < UNAS_FIELDS_CACHE_TTL_MS) {
-			return res.json(cached.data);
-		}
+    const ref = db.collection('unasFields').doc(String(shopId));
+    const snap = await ref.get();
+    const now = Date.now();
 
-		const shop = await loadShopById(shopId);
-		const { apiKey } = shop;
+    // ha kényszerített frissítés kérve, vagy nincs cache, vagy lejárt → lehúzzuk UNAS-ból
+    let shouldRefresh = String(refresh || '') === '1';
+    let cached = snap.exists ? (snap.data() || null) : null;
 
-		let paramsXml = null;
-		if (processId) {
-			const doc = await db.collection('processes').doc(String(processId)).get();
-			if (doc.exists) {
-				const pc = doc.data() || {};
-				paramsXml =
-					pc?.productDb?.paramsXml || pc?.unas?.productDb?.paramsXml || null;
-			}
-		}
+    if (!shouldRefresh && cached?.updatedAt) {
+      const ageMs = now - new Date(cached.updatedAt).getTime();
+      if (ageMs > UNAS_FIELDS_TTL_MS) shouldRefresh = true;
+    }
+    if (!cached) shouldRefresh = true;
 
-		const { headers } = await fetchProductDbHeaders({ apiKey, paramsXml });
-		const fields = headers.map((h) => ({
-			key: String(h.key || h),
-			label: String(h.label || h),
-			id: h.id !== undefined ? String(h.id) : null,
-		}));
-
-		const data = { shopId, count: fields.length, fields };
-		unasFieldsCache.set(cacheKey, { ts: now, data });
-		return res.json(data);
-	} catch (e) {
-		console.error('[GET /api/unas/fields] error:', e);
-		const status = e?.code === 'BAD_REQUEST' ? 400 : 500;
-		return res
-			.status(status)
-			.json({ error: e.message || 'Hiba', code: e.code || 'ERR' });
-	}
+    if (shouldRefresh) {
+      const fresh = await fetchAndStoreUnasFields(shopId, processId);
+      return res.json({ ...fresh, source: 'unas' });
+    }
+    // van érvényes cache
+    return res.json({ ...cached, source: 'cache' });
+  } catch (e) {
+    console.error('[GET /api/unas/fields] error:', e);
+    const status = e?.code === 'BAD_REQUEST' ? 400 : 500;
+    return res.status(status).json({ error: e.message || 'Hiba', code: e.code || 'ERR' });
+  }
 });
 
 // --- /api/config cache ---

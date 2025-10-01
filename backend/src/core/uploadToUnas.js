@@ -61,6 +61,53 @@ const formulaHasVat = (formula) =>
 const formulaHasShipping = (formula) =>
 	typeof formula === 'string' && /\{shipping\}/i.test(formula);
 
+const PRICING_TOKEN_REGEX = /(\{basePrice\}|\{priceMargin\}|\{priceMarginPercent\}|\{priceMarginFactor\}|\{discount\}|\{discountPercent\}|\{discountMultiplier\}|\{vat\}|\{vatPercent\}|\{shipping\}|\+|\-|\*|\/|\(|\)|\s+|\d+(?:\.\d+)?)/g;
+
+function evaluatePricingFormula(formula, values = {}) {
+	if (!formula || typeof formula !== 'string') return null;
+	const tokens = formula.match(PRICING_TOKEN_REGEX);
+	if (!Array.isArray(tokens) || tokens.length === 0) return null;
+	const replacers = {
+		'{basePrice}': values.basePrice,
+		'{shipping}': values.shipping,
+		'{priceMargin}': values.priceMargin,
+		'{priceMarginPercent}': values.priceMarginPercent,
+		'{priceMarginFactor}': values.priceMarginFactor,
+		'{discount}': values.discount,
+		'{discountPercent}': values.discountPercent,
+		'{discountMultiplier}': values.discountMultiplier,
+		'{vat}': values.vat,
+		'{vatPercent}': values.vatPercent,
+	};
+	let expression = '';
+	for (const token of tokens) {
+		if (!token.trim()) continue;
+		if (token in replacers) {
+			const num = Number(replacers[token]);
+			expression += Number.isFinite(num) ? String(num) : '0';
+			continue;
+		}
+		if (/^[0-9]+(?:\.[0-9]+)?$/.test(token)) {
+			expression += token;
+			continue;
+		}
+		if (/^[+\-*/()]$/.test(token)) {
+			expression += token;
+			continue;
+		}
+		return null;
+	}
+	const sanitized = expression.replace(/\s+/g, '');
+	if (!sanitized || /[^0-9.+\-*/()]/.test(sanitized)) return null;
+	try {
+		const result = Function('"use strict"; return (' + sanitized + ');')();
+		return Number.isFinite(result) ? result : null;
+	} catch (_) {
+		return null;
+	}
+
+}
+
 function parseNumSmart(v) {
 	if (v == null) return null;
 	let s = String(v).trim().toLowerCase();
@@ -635,20 +682,77 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			priceHuf = await convertCurrency(priceValue, currency, 'HUF');
 		}
 
-		// 6) Nettó/bruttó számítás, kerekítés (bruttó → kerekítés → nettó visszavezetés)
-		const treatLegacyAsGross = includesVat;
+		const vatPct = Number(processConfig?.vat ?? 27);
+		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
+		const vatPercent = Number.isFinite(vatPct) ? vatPct : 0;
 
-		const itemForEnsure = treatLegacyAsGross
-			? { price_gross: priceHuf + shippingAmount }
-			: { price_net: priceHuf + shippingAmount };
+		const marginPct = Number(processConfig?.priceMargin ?? 0);
+		const marginPercent = Number.isFinite(marginPct) ? marginPct : 0;
+		let marginMultiplier = Number.isFinite(marginPct) ? marginPercent / 100 : 0;
+		if (!Number.isFinite(marginMultiplier)) marginMultiplier = 0;
+		if (marginMultiplier < 0) marginMultiplier = 0;
+		const marginFactor = 1 + marginMultiplier;
+
+		const discountPct = Number(processConfig?.discount ?? 0);
+		const discountPercent = Number.isFinite(discountPct) ? discountPct : 0;
+		let discountMultiplier = Number.isFinite(discountPct)
+			? 1 - discountPercent / 100
+			: 1;
+		if (!Number.isFinite(discountMultiplier)) discountMultiplier = 1;
+		if (discountMultiplier < 0) discountMultiplier = 0;
+
+		const formulaRaw = processConfig?.pricingFormula || '';
+		let formulaAmount = null;
+		let formulaUsed = false;
+
+		if (formulaRaw.trim()) {
+			const evalContext = {
+				basePrice: priceHuf,
+				shipping: shippingAmount,
+				priceMargin: marginMultiplier,
+				priceMarginPercent: marginPercent,
+				priceMarginFactor: marginFactor,
+				discount: discountMultiplier,
+				discountPercent,
+				discountMultiplier,
+				vat: vatFactor,
+				vatPercent,
+			};
+			const computed = evaluatePricingFormula(formulaRaw, evalContext);
+			if (!Number.isFinite(computed)) {
+				const msg =
+					'[UNAS][ERROR] Invalid pricingFormula result (sku: ' +
+					(rec.sku || rec['Cikkszám'] || '') +
+					', formula: ' +
+					formulaRaw +
+					')';
+				console.error(msg);
+				stats.failed.push({
+					key: feedKey,
+					sku: unasSku,
+					unasKey,
+					reason: 'Invalid pricingFormula',
+					message: msg,
+					error: '[price] ' + msg,
+				});
+				continue;
+			}
+			formulaAmount = Math.max(0, computed);
+			formulaUsed = true;
+		}
+
+		const itemForEnsure = formulaUsed
+			? includesVat
+				? { price_gross: formulaAmount }
+				: { price_net: formulaAmount }
+			: includesVat
+				? { price_gross: priceHuf + shippingAmount }
+				: { price_net: priceHuf + shippingAmount };
 
 		const netGross = await ensureNetGross(itemForEnsure, {
 			...processConfig,
 			currency: 'HUF',
 		});
-
-		const vatPct = Number(processConfig?.vat ?? 27);
-		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
 
 		let net = netGross.net;
 		let gross = netGross.gross;
@@ -673,6 +777,25 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				value: rec[priceField],
 				parsed: priceValue,
 				currency,
+				baseHuf: priceHuf,
+				formula: formulaUsed
+					? {
+						raw: formulaRaw,
+						result: formulaAmount,
+						values: {
+							basePrice: priceHuf,
+							shipping: shippingAmount,
+							priceMargin: marginMultiplier,
+							priceMarginPercent: marginPercent,
+							priceMarginFactor: marginFactor,
+							discount: discountMultiplier,
+							discountPercent,
+							discountMultiplier,
+							vat: vatFactor,
+							vatPercent,
+						},
+					}
+					: null,
 			},
 			weightSrc: {
 				feedKey: processConfig?.weightFields?.feed,
@@ -709,7 +832,19 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			price_gross: gross,
 			currency: currency,
 			orderable: orderable,
-			_calc: { weight, shippingAmount },
+			_calc: {
+				weight,
+				shippingAmount,
+				priceHuf,
+				formulaUsed,
+				formulaAmount,
+				marginPercent,
+				marginMultiplier,
+				marginFactor,
+				discountPercent,
+				discountMultiplier,
+				vatPercent,
+			},
 		};
 
 		if (dryRun) {
@@ -859,3 +994,4 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 }
 
 module.exports = uploadToUnas;
+

@@ -709,7 +709,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			const evalContext = {
 				basePrice: priceHuf,
 				shipping: shippingAmount,
-				priceMargin: marginMultiplier,
+				priceMargin: marginFactor,
 				priceMarginPercent: marginPercent,
 				priceMarginFactor: marginFactor,
 				discount: discountMultiplier,
@@ -742,9 +742,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 
 		const itemForEnsure = formulaUsed
-			? includesVat
-				? { price_gross: formulaAmount }
-				: { price_net: formulaAmount }
+			? { price_gross: formulaAmount }
 			: includesVat
 				? { price_gross: priceHuf + shippingAmount }
 				: { price_net: priceHuf + shippingAmount };

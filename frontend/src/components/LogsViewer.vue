@@ -1,6 +1,6 @@
 <!-- frontend/src/components/LogsViewer.vue -->
 <script setup>
-	import { onMounted, ref, onBeforeUnmount, computed } from 'vue';
+	import { onMounted, ref, onBeforeUnmount, computed, watch } from 'vue';
 	import api from '../services/api';
 	import { auth, db } from '../firestore';
 	import { onAuthStateChanged } from 'firebase/auth';
@@ -26,6 +26,21 @@
 	});
 	function handlePageChange(page) {
 		currentPage.value = page;
+	}
+
+	// ====== DETAIL ROW PAGINATION ======
+	const detailPageSize = 20;
+	const detailPages = ref({});
+	function detailCurrentPage(runId) {
+		if (!runId) return 1;
+		return detailPages.value[runId]?.page || 1;
+	}
+	function handleDetailPageChange(runId, page) {
+		if (!runId) return;
+		detailPages.value = {
+			...detailPages.value,
+			[runId]: { page },
+		};
 	}
 
 	// ====== FIRESTORE STREAM ======
@@ -122,6 +137,35 @@
 		return out;
 	}
 
+	function detailRowCount(run) {
+		if (!run) return 0;
+		return detailRows(run).length;
+	}
+
+	function pagedDetailRows(run) {
+		const rows = detailRows(run);
+		const page = detailCurrentPage(run?.id);
+		const start = (page - 1) * detailPageSize;
+		return rows.slice(start, start + detailPageSize);
+	}
+
+	watch(
+		runs,
+		(list) => {
+			const nextState = {};
+			list.forEach((run) => {
+				const runId = run?.id;
+				if (!runId) return;
+				const total = detailRowCount(run);
+				const pageCount = Math.max(1, Math.ceil(total / detailPageSize));
+				const prevPage = detailPages.value[runId]?.page || 1;
+				nextState[runId] = { page: Math.min(prevPage, pageCount) };
+			});
+			detailPages.value = nextState;
+		},
+		{ immediate: true, deep: true }
+	);
+
 	// ====== UI SEGÉDEK ======
 	function rowStatus(it) {
 		if (it.status === 'fail' || it.error)
@@ -208,6 +252,7 @@
 		const c = run?.counts || {};
 		const meta = run?.meta || {};
 		const skipped = skippedTotal(run);
+		if (Number.isFinite(c.feedSupplier)) return c.feedSupplier;
 		if (Number.isFinite(c.total)) return c.total;
 		return (
 			(meta.modifiedTotal ?? c.modified ?? 0) +
@@ -215,6 +260,14 @@
 			skipped +
 			(c.unchanged || 0)
 		);
+	}
+
+	function unasTotal(run) {
+		const c = run?.counts || {};
+		const meta = run?.meta || {};
+		if (Number.isFinite(c.unasSupplier)) return c.unasSupplier;
+		if (Number.isFinite(meta.unasSupplierCount)) return meta.unasSupplierCount;
+		return 0;
 	}
 </script>
 
@@ -250,17 +303,16 @@
 								class="text-xs text-gray-500"
 								style="display: block; margin-top: 0.5rem"
 							>
-								Megjelenítve: <br />
-								összesen {{ totalFor(row) }} termék,<br />
-								módosított {{ row.meta.modifiedStored }}/{{
-									row.meta.modifiedTotal
-								}},<br />
-								hibás {{ row.meta.failedStored }}/{{ row.meta.failedTotal }}.
+				MegjelenĂ­tve: <br />
+				Feed elemek: {{ totalFor(row) }}<br />
+				UNAS elemek: {{ unasTotal(row) }}<br />
+				MĂłdosĂ­tott {{ row.meta.modifiedStored }}/{{ row.meta.modifiedTotal }},<br />
+				HibĂˇs {{ row.meta.failedStored }}/{{ row.meta.failedTotal }}.
 							</span>
 						</div>
 
 						<!-- RÉSZLETEZŐ TÁBLA -->
-						<el-table :data="detailRows(row)" border size="small" row-key="sku">
+						<el-table :data="pagedDetailRows(row)" border size="small" row-key="sku">
 							<el-table-column label="#" type="index" width="50" />
 							<el-table-column label="Státusz" width="150">
 								<template #default="{ row: it }">
@@ -317,6 +369,16 @@
 								</template>
 							</el-table-column>
 						</el-table>
+						<el-pagination
+							v-if="detailRowCount(row) > detailPageSize"
+							:current-page="detailCurrentPage(row.id)"
+							:page-size="detailPageSize"
+							:total="detailRowCount(row)"
+							layout="prev, pager, next"
+							small
+							@current-change="(page) => handleDetailPageChange(row.id, page)"
+							class="mt-2"
+						/>
 					</div>
 				</template>
 			</el-table-column>
@@ -333,8 +395,11 @@
 				<template #default="{ row }">{{ prettyMs(row.durationMs) }}</template>
 			</el-table-column>
 
-			<el-table-column label="Összesen" width="100" align="center">
+			<el-table-column label="Feed elemek" width="110" align="center">
 				<template #default="{ row }">{{ totalFor(row) }}</template>
+			</el-table-column>
+			<el-table-column label="UNAS elemek" width="110" align="center">
+				<template #default="{ row }">{{ unasTotal(row) }}</template>
 			</el-table-column>
 			<el-table-column label="Változott" width="90" align="center">
 				<template #default="{ row }"

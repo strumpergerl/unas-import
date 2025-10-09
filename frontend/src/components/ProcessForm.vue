@@ -33,10 +33,8 @@
 			</el-select>
 		</el-form-item>
 
-		<el-row :gutter="20">
-			<el-col :span="12">
 				<el-form-item label="Feed pénzneme">
-					<el-select v-model="form.currency">
+					<el-select v-model="form.currency" style="width: 150px; margin-right: 2rem">
 						<el-option
 							v-for="opt in ['EUR', 'USD', 'HUF', 'CNY']"
 							:key="opt"
@@ -44,14 +42,31 @@
 							:value="opt"
 						/>
 					</el-select>
+					<div class="feed-price-mode">
+						<el-switch
+							v-model="form.feedPriceIsGross"
+							inline-prompt
+							active-text="Bruttó"
+							inactive-text="Nettó"
+							size="large"
+						/>
+						<el-input-number
+							v-model="form.feedVatPercent"
+							:disabled="!form.feedPriceIsGross"
+							:min="0"
+							:step="1"
+							controls-position="right"
+							style="max-width: 100px; margin-left: 1rem"
+						>
+							<template #suffix><span>%</span></template>
+						</el-input-number>
+					</div>
+					
 				</el-form-item>
-			</el-col>
-			<el-col :span="12">
-				<el-form-item v-if="form.currency !== 'HUF'" label="Cél pénznem">
-					<el-input v-model="form.targetCurrency" disabled placeholder="HUF" />
-				</el-form-item>
-			</el-col>
-		</el-row>
+
+		<el-form-item v-if="form.currency !== 'HUF'" label="Cél pénznem" >
+			<el-input v-model="form.targetCurrency" disabled placeholder="HUF" style="max-width: 150px" />
+		</el-form-item>
 
 		<!-- Raktárkészlet (küszöb) – az árképzés elé -->
 		<el-form-item label="Raktárkészlet (küszöb)">
@@ -119,12 +134,6 @@
 							:disabled="used.priceMargin"
 							@click="addToken('{priceMargin}')"
 							>Árrés</el-button
-						>
-						<el-button
-							size="small"
-							:disabled="used.vat"
-							@click="addToken('{vat}')"
-							>ÁFA</el-button
 						>
 						<el-button
 							size="small"
@@ -437,7 +446,16 @@
 		},
 
 		setup(props, { emit }) {
-			const form = reactive({ vat: 27, stockThreshold: 1, ...props.initial });
+			const form = reactive({
+				vat: 27,
+				stockThreshold: 1,
+				feedPriceIsGross: false,
+				feedVatPercent: 0,
+				...props.initial,
+			});
+			form.feedPriceIsGross = !!form.feedPriceIsGross;
+			const initialFeedVat = Number(form.feedVatPercent);
+			form.feedVatPercent = Number.isFinite(initialFeedVat) ? initialFeedVat : 0;
 
 			// --- Shipping state ---
 			const shippingByWeight = ref((form.shippingType || 'fixed') === 'weight');
@@ -450,6 +468,12 @@
 			function syncShippingType() {
 				form.shippingType = shippingByWeight.value ? 'weight' : 'fixed';
 			}
+			watch(
+				() => form.feedPriceIsGross,
+				(val) => {
+					if (!val) form.feedVatPercent = 0;
+				}
+			);
 
 			// Kulcs mező (keyField) kezelése
 			const selectedKeyIndex = ref(0);
@@ -872,19 +896,12 @@
 			);
 
 			// ---- Képlet tokenek ----
-			const VAR_TOKENS = [
-				'{basePrice}',
-				'{discount}',
-				'{priceMargin}',
-				'{vat}',
-				'{shipping}',
-			];
+			const VAR_TOKENS = ['{basePrice}', '{discount}', '{priceMargin}', '{shipping}'];
 			const OP_TOKENS = ['+', '-', '*', '/', '(', ')', ' '];
 			const DISPLAY_MAP = {
 				'{basePrice}': 'Alapár',
 				'{discount}': 'Kedvezmény',
 				'{priceMargin}': 'Árrés',
-				'{vat}': 'ÁFA',
 				'{shipping}': 'Szállítás',
 				'+': '+',
 				'-': '−',
@@ -907,7 +924,6 @@
 				basePrice: pricingTokens.value.includes('{basePrice}'),
 				discount: pricingTokens.value.includes('{discount}'),
 				priceMargin: pricingTokens.value.includes('{priceMargin}'),
-				vat: pricingTokens.value.includes('{vat}'),
 				shipping: pricingTokens.value.includes('{shipping}'),
 			}));
 
@@ -1142,6 +1158,12 @@
 		flex-direction: column;
 		gap: 8px;
 	}
+	.feed-price-mode {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+	}
+	
 	.token-group {
 		display: flex;
 		align-items: center;
@@ -1264,5 +1286,14 @@
 	}
 	.weight-checkbox .el-checkbox-button__inner {
 		border: 1px solid var(--el-border-color-light);
+	}
+
+	.feed-price-mode .el-switch--large:not(.is-checked) .el-switch__core .el-switch__inner {
+		padding-left: 30px !important;
+		padding-right: 10px !important;
+	}
+	.feed-price-mode .el-switch--large.is-checked .el-switch__core .el-switch__inner {
+		padding-right: 30px !important;
+		padding-left: 10px !important;
 	}
 </style>

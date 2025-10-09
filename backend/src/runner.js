@@ -349,13 +349,15 @@ async function runProcessById(processId) {
 
 		const t6 = Date.now();
 
-		run.counts.modified = Array.isArray(stats?.modified)
-			? stats.modified.length
-			: 0;
-		run.counts.failed = Array.isArray(stats?.failed) ? stats.failed.length : 0;
-		run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
-		run.counts.skippedNoKey = stats?.skippedNoKeyCount || 0;
-		run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
+	run.counts.modified = Array.isArray(stats?.modified)
+		? stats.modified.length
+		: 0;
+	run.counts.failed = Array.isArray(stats?.failed) ? stats.failed.length : 0;
+	run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
+	run.counts.skippedNoKey = stats?.skippedNoKeyCount || 0;
+	run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
+	run.counts.feedSupplier = stats?.feedSupplierCount ?? run.counts.total ?? 0;
+	run.counts.unasSupplier = stats?.unasSupplierCount ?? 0;
 
 		run.items = [];
 
@@ -443,7 +445,7 @@ async function runProcessById(processId) {
   <small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
 </div>
 `;
-				await sendNotification(subject, body);
+				await sendNotification(subject, { html: body });
 			} else if (run.error) {
 				// Sikertelen szinkron (általános hiba)
 				const subject = `❌ Szinkron hiba - ${procName}`;
@@ -462,7 +464,7 @@ async function runProcessById(processId) {
 	<small style="color:#888;">Ez az email automatikusan generált értesítés.</small>
 </div>
 `;
-				await sendNotification(subject, body);
+				await sendNotification(subject, { html: body });
 			}
 		} catch (e) {
 			console.warn('[RUNNER] Email notification error:', e?.message || e);
@@ -503,7 +505,7 @@ async function runProcessById(processId) {
 </div>
 `;
 
-			await sendNotification(subject, body);
+			await sendNotification(subject, { html: body });
 		} catch (mailErr) {
 			console.warn(
 				'[RUNNER] Email küldés HIBA (runProcessById error ág):',

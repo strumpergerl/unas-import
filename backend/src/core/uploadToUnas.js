@@ -63,7 +63,7 @@ const formulaHasVat = (formula) =>
 const formulaHasShipping = (formula) =>
 	typeof formula === 'string' && /\{shipping\}/i.test(formula);
 
-const PRICING_TOKEN_REGEX = /(\{basePrice\}|\{priceMargin\}|\{priceMarginPercent\}|\{priceMarginFactor\}|\{discount\}|\{discountPercent\}|\{discountMultiplier\}|\{vat\}|\{vatPercent\}|\{shipping\}|\+|\-|\*|\/|\(|\)|\s+|\d+(?:\.\d+)?)/g;
+const PRICING_TOKEN_REGEX = /(\{basePrice\}|\{basePriceGross\}|\{priceMargin\}|\{priceMarginPercent\}|\{priceMarginFactor\}|\{discount\}|\{discountPercent\}|\{discountMultiplier\}|\{vat\}|\{vatPercent\}|\{feedVatPercent\}|\{feedVatFactor\}|\{shipping\}|\+|\-|\*|\/|\(|\)|\s+|\d+(?:\.\d+)?)/g;
 
 function evaluatePricingFormula(formula, values = {}) {
 	if (!formula || typeof formula !== 'string') return null;
@@ -71,6 +71,7 @@ function evaluatePricingFormula(formula, values = {}) {
 	if (!Array.isArray(tokens) || tokens.length === 0) return null;
 	const replacers = {
 		'{basePrice}': values.basePrice,
+		'{basePriceGross}': values.basePriceGross,
 		'{shipping}': values.shipping,
 		'{priceMargin}': values.priceMargin,
 		'{priceMarginPercent}': values.priceMarginPercent,
@@ -80,6 +81,8 @@ function evaluatePricingFormula(formula, values = {}) {
 		'{discountMultiplier}': values.discountMultiplier,
 		'{vat}': values.vat,
 		'{vatPercent}': values.vatPercent,
+		'{feedVatPercent}': values.feedVatPercent,
+		'{feedVatFactor}': values.feedVatFactor,
 	};
 	let expression = '';
 	for (const token of tokens) {
@@ -158,7 +161,6 @@ function calcShippingComponentHuf({ shippingType, shippingValue, weight }) {
 function ensureNetGross(item, processConfig) {
 	const vatPct = Number(processConfig?.vat ?? 27);
 	const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
-
 	const treatLegacyAsGross = formulaHasVat(processConfig?.pricingFormula);
 
 	// --- Árforrások ---
@@ -538,6 +540,21 @@ function filterProductDbRowsBySupplier(
 	return { filteredRows, stats };
 }
 
+function extractProductName(row) {
+	if (!row || typeof row !== 'object') return '';
+	return (
+		row.Name ??
+		row['Megnevezés'] ??
+		row['Megnevezes'] ??
+		row['ProductName'] ??
+		row['Termék neve'] ??
+		row['termek_nev'] ??
+		row['Name_en'] ??
+		row['Name_hu'] ??
+		''
+	);
+}
+
 function extractParamNameFromColumnLabel(label) {
 	if (typeof label !== 'string' || !label.includes(':')) return null;
 	const pipeIndex = label.indexOf('|');
@@ -628,16 +645,15 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 			? paramsXml
 			: builder.buildObject({
 					Params: {
-				Format: 'csv2',
-				GetName: 1,
-				GetStatus: 1,
-				GetPrice: 1,
-				GetStock: 1,
-				GetWeight: 1,
-				GetId: 1,
-				GetParam: 1,
-			},
-	  });
+						Format: 'csv2',
+						GetStatus: 1,
+						GetPrice: 1,
+						GetStock: 1,
+						GetWeight: 1,
+						GetId: 1,
+						GetParam: 1,
+					},
+			  });
 	const genResp = await postXml('getProductDB', reqXml, bearer);
 	if (genResp.status < 200 || genResp.status >= 300) {
 		throw new Error(
@@ -873,6 +889,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		skippedNotFoundCount: 0,
 		dryRun: !!dryRun,
 	};
+	const feedKeysSeen = new Set();
 	// console.log(`[UNAS] UNAS index készen áll: ${unasIndex}`);
 
 	for (const rec of records) {
@@ -890,6 +907,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			stats.skippedNoKeyCount++;
 			continue;
 		}
+
+		feedKeysSeen.add(feedValue);
 
 		// 3) UNAS index lookup (NOT FOUND = SKIP, nem megy a logba)
 		const { entry } = matchByExactKey(
@@ -914,8 +933,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		const unasSku = String(entry.sku).trim();
 
 		const includesShipping = formulaHasShipping(processConfig?.pricingFormula || '');
-		const includesVat      = formulaHasVat(processConfig?.pricingFormula || '');
-		
+
 		const requiresWeight =
 			includesShipping && (processConfig?.shippingType || 'fixed') === 'weight';
 		// --- Súly és szállítás ---
@@ -1008,10 +1026,22 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		// 5) Deviza + konverzió
 		const currency = (processConfig?.currency || 'HUF').toUpperCase();
-		let priceHuf = priceValue;
+		let priceHufRaw = priceValue;
 		if (currency !== 'HUF') {
-			priceHuf = await convertCurrency(priceValue, currency, 'HUF');
+			priceHufRaw = await convertCurrency(priceValue, currency, 'HUF');
 		}
+
+		const feedVatPctRaw = Number(processConfig?.feedVatPercent ?? 0);
+		const feedVatPercent = Number.isFinite(feedVatPctRaw) ? feedVatPctRaw : 0;
+		const feedVatFactor = 1 + Math.max(0, feedVatPercent) / 100;
+		let basePriceNet = priceHufRaw;
+		if (processConfig?.feedPriceIsGross) {
+			basePriceNet =
+				feedVatFactor > 0 ? priceHufRaw / feedVatFactor : priceHufRaw;
+		}
+		const basePriceGross = processConfig?.feedPriceIsGross
+			? priceHufRaw
+			: basePriceNet * feedVatFactor;
 
 		const vatPct = Number(processConfig?.vat ?? 27);
 		const vatFactor = 1 + (isFinite(vatPct) ? vatPct : 0) / 100;
@@ -1038,7 +1068,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 
 		if (formulaRaw.trim()) {
 			const evalContext = {
-				basePrice: priceHuf,
+				basePrice: basePriceNet,
+				basePriceGross,
 				shipping: shippingAmount,
 				priceMargin: marginFactor,
 				priceMarginPercent: marginPercent,
@@ -1048,6 +1079,8 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				discountMultiplier,
 				vat: vatFactor,
 				vatPercent,
+				feedVatPercent,
+				feedVatFactor,
 			};
 			const computed = evaluatePricingFormula(formulaRaw, evalContext);
 			if (!Number.isFinite(computed)) {
@@ -1072,11 +1105,11 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			formulaUsed = true;
 		}
 
+		const baseNetWithShipping = basePriceNet + shippingAmount;
+
 		const itemForEnsure = formulaUsed
-			? { price_gross: formulaAmount }
-			: includesVat
-				? { price_gross: priceHuf + shippingAmount }
-				: { price_net: priceHuf + shippingAmount };
+			? { price_net: formulaAmount }
+			: { price_net: baseNetWithShipping };
 
 		const netGross = await ensureNetGross(itemForEnsure, {
 			...processConfig,
@@ -1087,16 +1120,17 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		let gross = netGross.gross;
 
 		const round4 = (x) => Math.round(x * 10000) / 10000;
+		const safeVatFactor = vatFactor > 0 ? vatFactor : 1;
 
 		if (processConfig?.rounding && processConfig.rounding > 0) {
 			const factor = Math.max(1, Number(processConfig.rounding) || 0);
 			const grossRounded = Math.ceil(gross / factor) * factor; // lépcsőre kerekített bruttó (egész)
 			gross = grossRounded;
-			net = round4(gross / vatFactor); // nettó 4 tizedes
+			net = round4(gross / safeVatFactor); // nettó 4 tizedes
 		} else {
 			// bruttó marad egészre kerekítve, nettó 4 tizedes a bruttóból
 			gross = Math.round(gross);
-			net = round4(gross / vatFactor);
+			net = round4(gross / safeVatFactor);
 		}
 
 		console.log('[UNAS][DEBUG][calc]', {
@@ -1106,24 +1140,32 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 				value: rec[priceField],
 				parsed: priceValue,
 				currency,
-				baseHuf: priceHuf,
+				convertedHuf: priceHufRaw,
+				feedPriceIsGross: !!processConfig?.feedPriceIsGross,
+				baseNet: basePriceNet,
+				baseGross: basePriceGross,
+				feedVatPercent,
+				feedVatFactor,
 				formula: formulaUsed
 					? {
-						raw: formulaRaw,
-						result: formulaAmount,
-						values: {
-							basePrice: priceHuf,
-							shipping: shippingAmount,
-							priceMargin: marginMultiplier,
-							priceMarginPercent: marginPercent,
-							priceMarginFactor: marginFactor,
-							discount: discountMultiplier,
-							discountPercent,
-							discountMultiplier,
-							vat: vatFactor,
-							vatPercent,
-						},
-					}
+							raw: formulaRaw,
+							result: formulaAmount,
+							values: {
+								basePrice: basePriceNet,
+								basePriceGross,
+								shipping: shippingAmount,
+								priceMargin: marginMultiplier,
+								priceMarginPercent: marginPercent,
+								priceMarginFactor: marginFactor,
+								discount: discountMultiplier,
+								discountPercent,
+								discountMultiplier,
+								vat: vatFactor,
+								vatPercent,
+								feedVatPercent,
+								feedVatFactor,
+							},
+					  }
 					: null,
 			},
 			weightSrc: {
@@ -1164,7 +1206,12 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			_calc: {
 				weight,
 				shippingAmount,
-				priceHuf,
+				convertedHuf: priceHufRaw,
+				basePriceNet,
+				basePriceGross,
+				baseNetWithShipping,
+				feedVatPercent,
+				feedVatFactor,
 				formulaUsed,
 				formulaAmount,
 				marginPercent,
@@ -1312,6 +1359,32 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		}
 	}
 
+	const missingFromFeed = [];
+	for (const [unasIndexKey, entry] of unasIndex.entries()) {
+		if (feedKeysSeen.has(unasIndexKey)) continue;
+		const sku = entry?.sku ? String(entry.sku) : '';
+		const errorMessage = `[Hiányzó termék]: ${sku || 'n/a'}`;
+		missingFromFeed.push({ sku, unasKey: unasIndexKey });
+		stats.failed.push({
+			key: null,
+			sku,
+			unasKey: unasIndexKey,
+			reason: 'missing_in_feed',
+			message: '[UNAS] A beszállítói feed nem tartalmazza az UNAS terméket.',
+			error: errorMessage,
+		});
+	}
+
+	if (missingFromFeed.length) {
+		console.warn('[UNAS][MISSING][feed]', {
+			count: missingFromFeed.length,
+			samples: missingFromFeed.slice(0, 5),
+		});
+	}
+	stats.feedSupplierCount = feedKeysSeen.size;
+	stats.unasSupplierCount = rows.length;
+	stats.missingFromFeed = missingFromFeed;
+
 	console.log('[UNAS][STATS][summary]', {
 		total: stats.total,
 		modified: stats.modified.length,
@@ -1319,6 +1392,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		skippedNoKey: stats.skippedNoKeyCount,
 		skippedNoChange: stats.skippedNoChangeCount,
 		skippedNotFound: stats.skippedNotFoundCount,
+		feedSupplierCount: stats.feedSupplierCount,
+		unasSupplierCount: stats.unasSupplierCount,
+		missingSupplierInFeed: missingFromFeed.length,
 	});
 
 	return stats;

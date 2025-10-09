@@ -390,6 +390,8 @@ router.post('/run', async (req, res) => {
 			run.counts.skippedNoChange  = uploadResult?.skippedNoChangeCount || 0;
 			run.counts.skippedNoKey     = uploadResult?.skippedNoKeyCount || 0;
 			run.counts.skippedNotFound  = uploadResult?.skippedNotFoundCount || 0;
+			run.counts.feedSupplier     = uploadResult?.feedSupplierCount ?? run.counts.input ?? 0;
+			run.counts.unasSupplier     = uploadResult?.unasSupplierCount ?? 0;
 
 			// csak módosított és hibás tételek kerüljenek a log tételek közé
 			for (const m of uploadResult?.modified || []) {

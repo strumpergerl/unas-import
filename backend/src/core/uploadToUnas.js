@@ -37,6 +37,8 @@ const CACHE_DIR = process.env.CACHE_DIR || path.join(os.tmpdir(), 'unas-cache');
 const parser = new xml2js.Parser({ explicitArray: false });
 const builder = new xml2js.Builder({ headless: true });
 
+const SUPPLIER_PARAM_NAME = 'Beszerezhető - Csak nekünk';
+
 const keepAliveHttp = new http.Agent({ keepAlive: true, maxSockets: 20 });
 const keepAliveHttps = new https.Agent({ keepAlive: true, maxSockets: 20 });
 
@@ -308,12 +310,12 @@ async function buildDynamicUnasIndex(
 		const key = canonicalizeKey(rawKey, { caseSensitive });
 		if (!key) continue;
 
-		// SKU (Cikkszám) kötelező – ne essünk vissza paraméterre!
+		// SKU (Cikkszám) kötelező - ne essünk vissza paraméterre!
 		const rawSku = row['Cikkszám'] ?? row['SKU'] ?? row['Sku'] ?? row['sku'];
 		const sku = rawSku == null ? '' : String(rawSku).trim();
 		if (!sku) continue;
 
-		// duplakulcs esetén az utolsó nyer – opcionálisan logolhatsz
+		// duplakulcs esetén az utolsó nyer - opcionálisan logolhatsz
 		// if (idx.has(key)) console.warn('[UNAS][INDEX] Duplikált kulcs:', key);
 
 		idx.set(key, { ...row, sku });
@@ -329,20 +331,313 @@ async function buildDynamicUnasIndex(
 	return idx;
 }
 
+function stringOrNull(raw) {
+	if (raw === undefined || raw === null) return null;
+	const str = String(raw);
+	return str.length ? str : null;
+}
+
+function collectParamEntriesFromStructure(node, acc = []) {
+	if (!node) return acc;
+	if (Array.isArray(node)) {
+		for (const item of node) {
+			collectParamEntriesFromStructure(item, acc);
+		}
+		return acc;
+	}
+	if (typeof node !== 'object') return acc;
+
+	const hasName = Object.prototype.hasOwnProperty.call(node, 'Name');
+	const hasValue = Object.prototype.hasOwnProperty.call(node, 'Value');
+	if (hasName && hasValue) {
+		acc.push({ name: node.Name, value: node.Value });
+	}
+
+	for (const child of Object.values(node)) {
+		if (child && (Array.isArray(child) || typeof child === 'object')) {
+			collectParamEntriesFromStructure(child, acc);
+		}
+	}
+
+	return acc;
+}
+
+function parseParamKeyValueText(text) {
+	const entries = [];
+	const str = stringOrNull(text);
+	if (!str) return entries;
+
+	const groups = str.split(/\s*;\s*/);
+	for (const group of groups) {
+		if (!group) continue;
+		const tokens = group.split(/\s*\|\s*/);
+		let name = null;
+		let value = null;
+
+		for (const token of tokens) {
+			if (!token) continue;
+			const kv = token.split(/\s*[:=]\s*/, 2);
+			if (kv.length !== 2) continue;
+			const key = kv[0]?.trim();
+			const val = kv[1] ?? '';
+			if (!key) continue;
+			if (key === 'Name') {
+				name = val;
+			} else if (key === 'Value') {
+				value = val;
+			}
+		}
+
+		if (name != null && value != null) {
+			entries.push({ name, value });
+		}
+	}
+
+	return entries;
+}
+
+function extractParamValueFromStructured(source, paramName) {
+	if (source === undefined || source === null) return null;
+
+	if (typeof source === 'object') {
+		const entries = collectParamEntriesFromStructure(source, []);
+		for (const entry of entries) {
+			if (entry?.name === paramName) {
+				return stringOrNull(entry.value);
+			}
+		}
+		return null;
+	}
+
+	const text = String(source);
+	const trimmed = text.trim();
+	if (!trimmed) return null;
+
+	if (/^[\[{]/.test(trimmed)) {
+		try {
+			const parsed = JSON.parse(trimmed);
+			const value = extractParamValueFromStructured(parsed, paramName);
+			if (value != null) return value;
+		} catch (_) {
+			// ignore JSON parse errors
+		}
+	}
+
+	const pairs = parseParamKeyValueText(trimmed);
+	for (const pair of pairs) {
+		if (pair.name === paramName) {
+			return stringOrNull(pair.value);
+		}
+	}
+
+	return null;
+}
+
+function extractSupplierParamValue(row, paramName = SUPPLIER_PARAM_NAME) {
+	if (!row || typeof row !== 'object') return null;
+
+	const direct = stringOrNull(row[paramName]);
+	if (direct != null) return direct;
+
+	const namesById = new Map();
+	const valuesById = new Map();
+	const paramColumnPrefix = `Paraméter: ${paramName}|`;
+
+	for (const [rawKey, rawValue] of Object.entries(row)) {
+		const key = rawKey == null ? '' : String(rawKey);
+		if (!key) continue;
+
+		if (key === paramName) {
+			const value = stringOrNull(rawValue);
+			if (value != null) return value;
+			continue;
+		}
+
+		if (key === 'Param' || key === 'Params' || key === 'Parameter') {
+			const value = extractParamValueFromStructured(rawValue, paramName);
+			if (value != null) return value;
+			continue;
+		}
+
+		if (key.startsWith(paramColumnPrefix)) {
+			const value = stringOrNull(rawValue);
+			if (value != null) return value;
+			continue;
+		}
+
+		const nameMatch =
+			key.match(/^ParamName\[(\d+)\]$/) ||
+			key.match(/^Param\[(\d+)\]\s*Name$/);
+		if (nameMatch) {
+			const value = stringOrNull(rawValue);
+			if (value != null) namesById.set(nameMatch[1], value);
+			continue;
+		}
+
+		const valueMatch =
+			key.match(/^ParamValue\[(\d+)\]$/) ||
+			key.match(/^Param\[(\d+)\]\s*Value$/);
+		if (valueMatch) {
+			const value = stringOrNull(rawValue);
+			if (value != null) valuesById.set(valueMatch[1], value);
+			continue;
+		}
+
+		if (key.startsWith('Param')) {
+			const value = extractParamValueFromStructured(rawValue, paramName);
+			if (value != null) return value;
+		}
+	}
+
+	for (const [id, name] of namesById.entries()) {
+		if (name === paramName) {
+			const value = valuesById.get(id);
+			if (value != null) return value;
+		}
+	}
+
+	return null;
+}
+
+function filterProductDbRowsBySupplier(
+	rows,
+	supplierName,
+	paramName = SUPPLIER_PARAM_NAME
+) {
+	if (!Array.isArray(rows) || !rows.length) {
+		return {
+			filteredRows: [],
+			stats: { missingSupplierParam: 0, mismatchedSupplier: 0 },
+		};
+	}
+
+	const supplierValue = stringOrNull(supplierName);
+	if (!supplierValue) {
+		return {
+			filteredRows: [...rows],
+			stats: { missingSupplierParam: 0, mismatchedSupplier: 0 },
+		};
+	}
+
+	const filteredRows = [];
+	const stats = { missingSupplierParam: 0, mismatchedSupplier: 0 };
+
+	for (const row of rows) {
+		const supplierInRow = extractSupplierParamValue(row, paramName);
+		if (supplierInRow == null) {
+			stats.missingSupplierParam += 1;
+			continue;
+		}
+		if (supplierInRow === supplierValue) {
+			filteredRows.push(row);
+		} else {
+			stats.mismatchedSupplier += 1;
+		}
+	}
+
+	return { filteredRows, stats };
+}
+
+function extractParamNameFromColumnLabel(label) {
+	if (typeof label !== 'string' || !label.includes(':')) return null;
+	const pipeIndex = label.indexOf('|');
+	const head = pipeIndex === -1 ? label : label.slice(0, pipeIndex);
+	const [prefix, ...rest] = head.split(':');
+	if (!prefix || rest.length === 0) return null;
+
+	const normalizedPrefix = prefix
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.trim();
+	if (normalizedPrefix !== 'parameter') return null;
+
+	const name = rest.join(':').trim();
+	return name || null;
+}
+
+function collectParamNamesFromConfig(processConfig) {
+	const names = new Set();
+	const supplierName =
+		stringOrNull(processConfig?.supplierParamName) || SUPPLIER_PARAM_NAME;
+	if (supplierName) names.add(supplierName);
+
+	const visited = new Set();
+	function walk(value) {
+		if (value == null) return;
+		if (typeof value === 'string') {
+			const name = extractParamNameFromColumnLabel(value);
+			if (name) names.add(name);
+			return;
+		}
+		if (typeof value !== 'object') return;
+		if (visited.has(value)) return;
+		visited.add(value);
+		if (Array.isArray(value)) {
+			for (const item of value) walk(item);
+		} else {
+			for (const item of Object.values(value)) walk(item);
+		}
+	}
+
+	walk(processConfig);
+	return names;
+}
+
+function mapParamNamesToIds(rows, names) {
+	const remaining = new Set(names || []);
+	const nameToId = new Map();
+	if (!remaining.size || !Array.isArray(rows)) return nameToId;
+
+	for (const row of rows) {
+		if (!row || remaining.size === 0) break;
+		for (const [key, value] of Object.entries(row)) {
+			const match = /^ParamName\[(\d+)]$/.exec(key);
+			if (!match) continue;
+			const paramName = stringOrNull(value);
+			if (!paramName) continue;
+			if (remaining.has(paramName)) {
+				nameToId.set(paramName, match[1]);
+				remaining.delete(paramName);
+				if (remaining.size === 0) break;
+			}
+		}
+	}
+
+	return nameToId;
+}
+
+function computeContentParamIds(rows, processConfig) {
+	const paramNames = collectParamNamesFromConfig(processConfig);
+	if (!paramNames.size) return [];
+	const nameToId = mapParamNamesToIds(rows, paramNames);
+	const missing = Array.from(paramNames).filter((name) => !nameToId.has(name));
+	if (missing.length) {
+		console.warn('[UNAS][WARN] ContentParam azonosító nem található az alábbi paraméterekhez:', {
+			paramNames: missing,
+		});
+	}
+	const ids = Array.from(new Set(Array.from(nameToId.values())));
+
+	return ids;
+}
+
 async function downloadProductDbCsv(bearer, paramsXml) {
 	const reqXml =
 		paramsXml && paramsXml.trim()
 			? paramsXml
 			: builder.buildObject({
 					Params: {
-						Format: 'csv2',
-						GetName: 1,
-						GetStatus: 1,
-						GetPrice: 1,
-						GetStock: 1,
-						GetParam: 1,
-					},
-			  });
+				Format: 'csv2',
+				GetName: 1,
+				GetStatus: 1,
+				GetPrice: 1,
+				GetStock: 1,
+				GetWeight: 1,
+				GetId: 1,
+				GetParam: 1,
+			},
+	  });
 	const genResp = await postXml('getProductDB', reqXml, bearer);
 	if (genResp.status < 200 || genResp.status >= 300) {
 		throw new Error(
@@ -379,9 +674,21 @@ async function downloadProductDbCsv(bearer, paramsXml) {
 }
 
 // --- Segéd: UNAS termék lekérés SKU alapján (diff-hez) ---
-async function fetchProductBySku(bearer, sku) {
+async function fetchProductBySku(bearer, sku, { paramIds } = {}) {
+	const filteredParamIds = Array.isArray(paramIds)
+		? paramIds
+				.map((id) => {
+					const str = String(id || '').trim();
+					return /^\d+$/.test(str) ? str : null;
+				})
+				.filter(Boolean)
+		: [];
+	const paramsPayload = { Sku: sku, ContentType: 'full', LimitNum: 1 };
+	if (filteredParamIds.length) {
+		paramsPayload.ContentParam = filteredParamIds.join(',');
+	}
 	const payload = builder.buildObject({
-		Params: { Sku: sku, ContentType: 'full', LimitNum: 1 },
+		Params: paramsPayload,
 	});
 	const resp = await postXml('getProduct', payload, bearer);
 
@@ -503,16 +810,40 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 	}
 
 	// --- UNAS termékek letöltése ---
-	const { rows, header } = await downloadProductDbCsv(
+	const productDb = await downloadProductDbCsv(
 		bearer,
 		processConfig.productDbParamsXml
 	);
+	const header = productDb?.header || [];
+	const allRows = Array.isArray(productDb?.rows) ? productDb.rows : [];
+	let rows = allRows;
 	if (!Array.isArray(header) || !header.includes(unasKey)) {
 		throw new Error(
 			`[UNAS] A ProductDB fejléc nem tartalmazza a kiválasztott UNAS kulcsot: "${unasKey}". (Fejléc minta: ${
 				header?.slice?.(0, 8)?.join(', ') || 'n/a'
 			})`
+	);
+}
+
+	const contentParamIds = computeContentParamIds(allRows, processConfig);
+
+	const supplierName = processConfig?.supplierName;
+	if (supplierName) {
+		const { filteredRows, stats } = filterProductDbRowsBySupplier(
+			rows,
+			supplierName
 		);
+
+		console.log('[UNAS][FILTER][supplier]', {
+			paramName: SUPPLIER_PARAM_NAME,
+			supplierName,
+			totalRows: rows.length,
+			keptRows: filteredRows.length,
+			droppedMissingParam: stats.missingSupplierParam,
+			droppedMismatchedSupplier: stats.mismatchedSupplier,
+		});
+
+		rows = filteredRows;
 	}
 
 	const unasIndex = await buildDynamicUnasIndex(
@@ -861,7 +1192,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		let exists = true;
 		let unasEntry = entry || {};
 		try {
-			const fetched = await fetchProductBySku(bearer, unasSku);
+			const fetched = await fetchProductBySku(bearer, unasSku, {
+				paramIds: contentParamIds,
+			});
 			exists = fetched.exists;
 			before = fetched.before || null;
 		} catch {

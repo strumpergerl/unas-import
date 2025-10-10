@@ -1252,11 +1252,11 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
-		console.log('[UNAS][DEBUG][közös feed és UNAS index]', {
-			sku: rec.sku || rec['Cikkszám'] || '',
-			orderable: orderable,
-			feedRaw: rec,
-		});
+		// console.log('[UNAS][DEBUG][közös feed és UNAS index]', {
+		// 	sku: rec.sku || rec['Cikkszám'] || '',
+		// 	orderable: orderable,
+		// 	feedRaw: rec,
+		// });
 		if (unasEntry) {
 			let orderableValue = unasEntry['Vásárolható, ha nincs Raktáron'];
 			// console.log('[UNAS][DEBUG][orderable unasIndex]', {
@@ -1315,12 +1315,12 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		// 11) UNAS update
 		try {
 			const resp = await postXml('setProduct', payload, bearer);
-			console.log('[UNAS][DEBUG][UNAS response]', {
-				sku: unasSku,
-				status: resp.status,
-				statusText: resp.statusText,
-				data: resp.data,
-			});
+			// console.log('[UNAS][DEBUG][UNAS response]', {
+			// 	sku: unasSku,
+			// 	status: resp.status,
+			// 	statusText: resp.statusText,
+			// 	data: resp.data,
+			// });
 			if (resp.status < 200 || resp.status >= 300) {
 				stats.failed.push({
 					key: feedKey,

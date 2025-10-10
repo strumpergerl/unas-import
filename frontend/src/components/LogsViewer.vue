@@ -269,6 +269,21 @@
 		if (Number.isFinite(meta.unasSupplierCount)) return meta.unasSupplierCount;
 		return 0;
 	}
+
+	function notSoldCount(run) {
+		const counts = run?.counts || {};
+		const skippedNoKey =
+			counts.skippedNoKey ??
+			counts.skippedNoKeyCount ??
+			run?.skipped?.noKey ??
+			0;
+		const skippedNotFound =
+			counts.skippedNotFound ??
+			counts.skippedNotFoundCount ??
+			run?.skipped?.notFound ??
+			0;
+		return skippedNoKey + skippedNotFound;
+	}
 </script>
 
 <template>
@@ -375,9 +390,10 @@
 							:page-size="detailPageSize"
 							:total="detailRowCount(row)"
 							layout="prev, pager, next"
-							small
+							medium
 							@current-change="(page) => handleDetailPageChange(row.id, page)"
-							class="mt-2"
+							class="mt-3"
+							style="margin: .5rem 0 1rem 0"
 						/>
 					</div>
 				</template>
@@ -411,6 +427,11 @@
 					><el-tag type="warning">{{ unchangedCount(row) }}</el-tag></template
 				>
 			</el-table-column>
+			<el-table-column label="Nem árusított" width="120" align="center">
+				<template #default="{ row }"
+					><el-tag type="info">{{ notSoldCount(row) }}</el-tag></template
+				>
+			</el-table-column>
 			<el-table-column label="Hibás" width="90" align="center">
 				<template #default="{ row }"
 					><el-tag type="danger">{{ failedCount(row) }}</el-tag></template
@@ -425,6 +446,7 @@
 			layout="prev, pager, next"
 			@current-change="handlePageChange"
 			class="mt-4"
+			style="margin: .5rem 0 1rem 0"
 		/>
 	</div>
 </template>

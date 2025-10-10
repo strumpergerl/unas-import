@@ -11,6 +11,8 @@ const inngest = new Inngest({
 });
 
 // Dinamikus scheduler: 5 percenként ellenőrzi az összes aktív process-t
+const RUNNING_GUARD_MS = 5 * 60 * 1000; // ha 5 percen belül fut, tekintsük aktívnak
+
 const dynamicSchedulerFunction = inngest.createFunction(
 	{ id: 'dynamic-scheduler' },
 	{ cron: '*/5 * * * *' }, // 5 percenként
@@ -25,31 +27,68 @@ const dynamicSchedulerFunction = inngest.createFunction(
 			if (!data.nextRunAt) continue;
 			const nextRun = new Date(data.nextRunAt);
 			if (isNaN(nextRun.getTime())) continue;
+			if (data.runningSince) {
+				const runningSince = new Date(data.runningSince);
+				if (!isNaN(runningSince.getTime()) && now - runningSince < RUNNING_GUARD_MS) {
+					results.push({ processId, status: 'skip_running' });
+					continue;
+				}
+			}
 			if (nextRun <= now) {
+				let intervalMs = 0;
+				if (data.frequency && typeof data.frequency === 'string') {
+					const m = data.frequency
+						.trim()
+						.toLowerCase()
+						.match(/^(\d+)\s*([smhd])$/);
+					if (m) {
+						const n = parseInt(m[1], 10);
+						const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+						if (n > 0 && mult) intervalMs = n * mult;
+					}
+				}
+				const nowIso = now.toISOString();
+				let newNextRunIso = null;
+				if (intervalMs > 0) {
+					const baseTs = Math.max(nextRun.getTime(), now.getTime());
+					newNextRunIso = new Date(baseTs + intervalMs).toISOString();
+				}
+				try {
+					await doc.ref.update(
+						{
+							lastRunAt: nowIso,
+							runningSince: nowIso,
+							...(newNextRunIso ? { nextRunAt: newNextRunIso } : {}),
+						},
+						{ lastUpdateTime: doc.updateTime }
+					);
+				} catch (preconditionErr) {
+					results.push({
+						processId,
+						status: 'skip_conflict',
+						error: preconditionErr?.message || String(preconditionErr),
+					});
+					continue;
+				}
+
 				// Itt futtatjuk a process-t
 				try {
 					await step.run(`run-process-${processId}`, async () => {
 						await runProcessById(processId);
 					});
-					// nextRunAt frissítése a frequency alapján
-					let intervalMs = 0;
-					if (data.frequency && typeof data.frequency === 'string') {
-						const m = data.frequency
-							.trim()
-							.toLowerCase()
-							.match(/^(\d+)\s*([smhd])$/);
-						if (m) {
-							const n = parseInt(m[1], 10);
-							const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
-							if (n > 0 && mult) intervalMs = n * mult;
-						}
-					}
-					if (intervalMs > 0) {
-						const newNextRun = new Date(nextRun.getTime() + intervalMs);
-						await doc.ref.update({ nextRunAt: newNextRun.toISOString() });
-					}
+					await doc.ref.update({
+						runningSince: null,
+						lastRunCompletedAt: new Date().toISOString(),
+						lastRunStatus: 'ok',
+					});
 					results.push({ processId, status: 'ok' });
 				} catch (e) {
+					await doc.ref.update({
+						runningSince: null,
+						lastRunCompletedAt: new Date().toISOString(),
+						lastRunStatus: 'error',
+						lastRunError: e?.message || String(e),
+					});
 					results.push({ processId, status: 'error', error: e?.message || e });
 				}
 			}
@@ -65,7 +104,7 @@ const dailyPruneFunction = inngest.createFunction(
 	async ({ step }) => {
 		try {
 			const deleted = await step.run('prune-old-runs', async () => {
-				return await pruneOldRuns(30);
+				return await pruneOldRuns(1); 
 			});
 			return { ok: true, deleted };
 		} catch (e) {

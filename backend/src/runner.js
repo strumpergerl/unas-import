@@ -14,7 +14,7 @@ const toTs = (d) =>
 		: admin.firestore.Timestamp.fromDate(new Date(d));
 
 /** Régi futások törlése finishedAtTs alapján (alap: 7 nap) */
-async function pruneOldRuns(maxAgeDays = 1) {
+async function pruneOldRuns(maxAgeDays = 7) {
 	const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
 	const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
 	let deleted = 0;

@@ -104,7 +104,7 @@ const dailyPruneFunction = inngest.createFunction(
 	async ({ step }) => {
 		try {
 			const deleted = await step.run('prune-old-runs', async () => {
-				return await pruneOldRuns(1); 
+				return await pruneOldRuns(7); 
 			});
 			return { ok: true, deleted };
 		} catch (e) {

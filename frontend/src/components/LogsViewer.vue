@@ -1,4 +1,4 @@
-<!-- frontend/src/components/LogsViewer.vue -->
+﻿<!-- frontend/src/components/LogsViewer.vue -->
 <script setup>
 	import { onMounted, ref, onBeforeUnmount, computed, watch } from 'vue';
 	import api from '../services/api';
@@ -113,27 +113,95 @@
 
 	// ====== RÉSZLETEZŐ SOROK (modified + failed), régi forma fallback ======
 	function detailRows(run) {
+		if (!run) return [];
 		const out = [];
-		(run?.modified || []).forEach((m) => {
+		const legacyItems = Array.isArray(run?.items) ? run.items : [];
+
+		const pushModify = (src) => {
 			out.push({
 				status: 'modify',
-				sku: m.sku ?? '',
-				changes: m.changes || null,
+				sku: src.sku ?? '',
+				changes: src.changes || null,
 				error: null,
 			});
-		});
-		(run?.failed || []).forEach((f) => {
+		};
+		const pushFail = (src) => {
 			out.push({
 				status: 'fail',
-				sku: f.sku ?? '',
+				sku: src.sku ?? '',
 				changes: null,
-				error: f.error || 'Ismeretlen hiba',
+				error: src.error || 'Ismeretlen hiba',
 			});
+		};
+		const pushMissing = (src) => {
+			out.push({
+				status: 'missing',
+				sku: src.sku ?? '',
+				changes: null,
+				error:
+					src.error ||
+					src.message ||
+					'[Megszűnt] A termék az UNAS-ban maradt, de nincs a feedben.',
+			});
+		};
+
+		let failAdded = 0;
+		(run?.failed || []).forEach((f) => {
+			pushFail(f);
+			failAdded++;
 		});
-		// Régi futások támogatása:
-		if (!out.length && Array.isArray(run?.items)) {
-			run.items.forEach((it) => out.push(it));
+		if (!failAdded && legacyItems.length) {
+			legacyItems
+				.filter((it) => it.action === 'fail')
+				.forEach((it) => pushFail(it));
 		}
+
+		let missingAdded = 0;
+		(run?.missingInFeed || []).forEach((m) => {
+			pushMissing(m);
+			missingAdded++;
+		});
+		if (!missingAdded && legacyItems.length) {
+			legacyItems
+				.filter((it) => it.action === 'missing')
+				.forEach((it) => {
+					pushMissing(it);
+					missingAdded++;
+				});
+		}
+
+		const expectedMissing = missingCount(run);
+		if (expectedMissing > missingAdded) {
+			out.push({
+				status: 'missing-summary',
+				sku: '—',
+				changes: null,
+				error: `+${expectedMissing - missingAdded} további megszűnt termék nincs listázva (adatok levágva a Firestore limit miatt).`,
+			});
+		}
+
+		(run?.modified || []).forEach((m) => pushModify(m));
+
+		// Régi futások támogatása – ha nincs más adat, mutassuk a mentett itemeket
+		if (!out.length && legacyItems.length) {
+			legacyItems.forEach((it) => {
+				const status =
+					it.action === 'fail'
+						? 'fail'
+						: it.action === 'missing'
+						? 'missing'
+						: it.action === 'modify'
+						? 'modify'
+						: 'info';
+				out.push({
+					status,
+					sku: it.sku ?? '',
+					changes: it.changes || null,
+					error: it.error || null,
+				});
+			});
+		}
+
 		return out;
 	}
 
@@ -168,9 +236,13 @@
 
 	// ====== UI SEGÉDEK ======
 	function rowStatus(it) {
-		if (it.status === 'fail' || it.error)
-			return { type: 'danger', label: 'Hibás' };
+		if (it.status === 'fail') return { type: 'danger', label: 'Hibás' };
+		if (it.status === 'missing')
+			return { type: 'danger', label: 'Megszűnt (hiányzik a feedből)' };
+		if (it.status === 'missing-summary')
+			return { type: 'danger', label: 'Megszűnt – összegzés' };
 		if (it.status === 'modify') return { type: 'success', label: 'Változott' };
+		if (it.error) return { type: 'danger', label: 'Hibás' };
 		return { type: 'info', label: 'Info' };
 	}
 	function hasChanges(it) {
@@ -235,13 +307,74 @@
 		return run?.counts?.modified ?? run?.meta?.modifiedTotal ?? 0;
 	}
 	function failedCount(run) {
-		return run?.counts?.failed ?? run?.meta?.failedTotal ?? 0;
+		const toFiniteNumber = (value) => {
+			const num = Number(value);
+			return Number.isFinite(num) ? num : null;
+		};
+		const candidates = [];
+		const counts = run?.counts || {};
+		const meta = run?.meta || {};
+
+		const explicit = toFiniteNumber(counts.failed);
+		if (explicit != null) candidates.push(explicit);
+
+		const metaTotal = toFiniteNumber(meta.failedTotal);
+		if (metaTotal != null) candidates.push(metaTotal);
+
+		if (Array.isArray(run?.failed)) {
+			candidates.push(run.failed.length);
+		}
+		if (Array.isArray(run?.items)) {
+			candidates.push(run.items.filter((it) => it?.action === 'fail').length);
+		}
+
+		return candidates.length ? Math.max(...candidates) : 0;
+	}
+	function missingCount(run) {
+		const counts = run?.counts || {};
+		const meta = run?.meta || {};
+		const toFiniteNumber = (value) => {
+			const num = Number(value);
+			return Number.isFinite(num) ? num : null;
+		};
+
+		const candidates = [];
+		const explicit = toFiniteNumber(counts.missingInFeed);
+		if (explicit != null) candidates.push(explicit);
+
+		const metaTotal = toFiniteNumber(meta.missingTotal);
+		if (metaTotal != null) candidates.push(metaTotal);
+
+		if (Array.isArray(run?.missingInFeed)) {
+			candidates.push(run.missingInFeed.length);
+		}
+
+		const unasTotal = toFiniteNumber(
+			counts.unasSupplier ?? meta.unasSupplierCount
+		);
+		const feedTotal = toFiniteNumber(
+			counts.feedSupplier ?? counts.input ?? meta.feedSupplierCount
+		);
+		if (unasTotal != null && feedTotal != null) {
+			candidates.push(Math.max(0, unasTotal - feedTotal));
+		}
+
+		return candidates.length ? Math.max(...candidates) : 0;
+	}
+	function missingStored(run) {
+		if (Number.isFinite(run?.meta?.missingStored)) {
+			return run.meta.missingStored;
+		}
+		if (Array.isArray(run?.missingInFeed)) {
+			return run.missingInFeed.length;
+		}
+		return missingCount(run);
 	}
 	function skippedTotal(run) {
 		const c = run?.counts || {};
-		return (
-			run?.skipped?.total ?? (c.skippedNoKey || 0) + (c.skippedNotFound || 0)
-		);
+		const noKey = Number(c.skippedNoKey ?? c.skippedNoKeyCount ?? 0);
+		const notFound = Number(c.skippedNotFound ?? c.skippedNotFoundCount ?? 0);
+		return run?.skipped?.total ?? (noKey + notFound);
 	}
 	function unchangedCount(run) {
 		return (
@@ -252,7 +385,9 @@
 		const c = run?.counts || {};
 		const meta = run?.meta || {};
 		const skipped = skippedTotal(run);
+		if (Number.isFinite(c.input)) return c.input;
 		if (Number.isFinite(c.feedSupplier)) return c.feedSupplier;
+		if (Number.isFinite(meta.feedSupplierCount)) return meta.feedSupplierCount;
 		if (Number.isFinite(c.total)) return c.total;
 		return (
 			(meta.modifiedTotal ?? c.modified ?? 0) +
@@ -267,23 +402,15 @@
 		const meta = run?.meta || {};
 		if (Number.isFinite(c.unasSupplier)) return c.unasSupplier;
 		if (Number.isFinite(meta.unasSupplierCount)) return meta.unasSupplierCount;
-		return 0;
+		const fallback =
+			modifiedCount(run) +
+			unchangedCount(run) +
+			failedCount(run) +
+			missingCount(run);
+		return Number.isFinite(fallback) ? fallback : 0;
 	}
 
-	function notSoldCount(run) {
-		const counts = run?.counts || {};
-		const skippedNoKey =
-			counts.skippedNoKey ??
-			counts.skippedNoKeyCount ??
-			run?.skipped?.noKey ??
-			0;
-		const skippedNotFound =
-			counts.skippedNotFound ??
-			counts.skippedNotFoundCount ??
-			run?.skipped?.notFound ??
-			0;
-		return skippedNoKey + skippedNotFound;
-	}
+	const feedOnlyCount = (run) => Number(skippedTotal(run) || 0);
 </script>
 
 <template>
@@ -322,7 +449,9 @@
 				Feed elemek: {{ totalFor(row) }}<br />
 				UNAS elemek: {{ unasTotal(row) }}<br />
 				MĂłdosĂ­tott {{ row.meta.modifiedStored }}/{{ row.meta.modifiedTotal }},<br />
-				HibĂˇs {{ row.meta.failedStored }}/{{ row.meta.failedTotal }}.
+				HibĂˇs {{ row.meta.failedStored }}/{{ row.meta.failedTotal }},<br />
+				MegszĹ±nt
+				{{ missingStored(row) }}/{{ missingCount(row) }}.
 							</span>
 						</div>
 
@@ -411,10 +540,10 @@
 				<template #default="{ row }">{{ prettyMs(row.durationMs) }}</template>
 			</el-table-column>
 
-			<el-table-column label="Feed elemek" width="110" align="center">
+			<el-table-column label="Feed elemei" width="110" align="center">
 				<template #default="{ row }">{{ totalFor(row) }}</template>
 			</el-table-column>
-			<el-table-column label="UNAS elemek" width="110" align="center">
+			<el-table-column label="UNAS elemei" width="110" align="center">
 				<template #default="{ row }">{{ unasTotal(row) }}</template>
 			</el-table-column>
 			<el-table-column label="Változott" width="90" align="center">
@@ -427,14 +556,19 @@
 					><el-tag type="warning">{{ unchangedCount(row) }}</el-tag></template
 				>
 			</el-table-column>
-			<el-table-column label="Nem árusított" width="120" align="center">
+			<!-- <el-table-column label="Nincs a shopban" width="140" align="center">
 				<template #default="{ row }"
-					><el-tag type="info">{{ notSoldCount(row) }}</el-tag></template
+					><el-tag type="info">{{ feedOnlyCount(row) }}</el-tag></template
 				>
-			</el-table-column>
-			<el-table-column label="Hibás" width="90" align="center">
+			</el-table-column> -->
+			<el-table-column label="Hibás" width="110" align="center">
 				<template #default="{ row }"
 					><el-tag type="danger">{{ failedCount(row) }}</el-tag></template
+				>
+			</el-table-column>
+			<el-table-column label="Megszűnt" width="120" align="center">
+				<template #default="{ row }"
+					><el-tag type="danger">{{ missingCount(row) }}</el-tag></template
 				>
 			</el-table-column>
 		</el-table>

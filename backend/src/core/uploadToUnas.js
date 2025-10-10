@@ -287,10 +287,12 @@ const saveIndexToFirestore = async (shopId, cfg, idx) => {
 	}
 };
 
-function makeUnasIndex(rows, unasKey) {
+function makeUnasIndex(rows, unasKey, { caseSensitive = true } = {}) {
 	const idx = new Map();
 	for (const row of rows) {
-		const key = row[unasKey];
+		const rawKey = row[unasKey];
+		const key = canonicalizeKey(rawKey, { caseSensitive });
+		if (!key) continue;
 		const cikkszam = row['Cikkszám'] || row['sku'] || key;
 		idx.set(key, { ...row, sku: cikkszam });
 	}
@@ -908,15 +910,16 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			continue;
 		}
 
-		feedKeysSeen.add(feedValue);
-
 		// 3) UNAS index lookup (NOT FOUND = SKIP, nem megy a logba)
-		const { entry } = matchByExactKey(
+		const { entry, key: matchedIndexKey } = matchByExactKey(
 			{ [feedKey]: feedValue },
 			unasIndex,
 			feedKey,
 			{ caseSensitive: true }
 		);
+		if (matchedIndexKey) {
+			feedKeysSeen.add(matchedIndexKey);
+		}
 
 		if (!entry || !entry.sku) {
 			if (stats.skippedNotFoundCount < 5) {
@@ -1364,9 +1367,7 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		if (feedKeysSeen.has(unasIndexKey)) continue;
 		const sku = entry?.sku ? String(entry.sku) : '';
 		const errorMessage = `[Hiányzó termék]: ${sku || 'n/a'}`;
-		missingFromFeed.push({ sku, unasKey: unasIndexKey });
-		stats.failed.push({
-			key: null,
+		missingFromFeed.push({
 			sku,
 			unasKey: unasIndexKey,
 			reason: 'missing_in_feed',
@@ -1381,9 +1382,14 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 			samples: missingFromFeed.slice(0, 5),
 		});
 	}
+	const missingCountFromList = missingFromFeed.length;
+	const missingCountByDiff = Math.max(0, rows.length - feedKeysSeen.size);
+	const missingTotal = Math.max(missingCountFromList, missingCountByDiff);
+
 	stats.feedSupplierCount = feedKeysSeen.size;
 	stats.unasSupplierCount = rows.length;
 	stats.missingFromFeed = missingFromFeed;
+	stats.missingFromFeedCount = missingTotal;
 
 	console.log('[UNAS][STATS][summary]', {
 		total: stats.total,
@@ -1394,7 +1400,9 @@ async function uploadToUnas(records, processConfig, shopConfig) {
 		skippedNotFound: stats.skippedNotFoundCount,
 		feedSupplierCount: stats.feedSupplierCount,
 		unasSupplierCount: stats.unasSupplierCount,
-		missingSupplierInFeed: missingFromFeed.length,
+		missingSupplierInFeed: missingTotal,
+		missingDerivedFromList: missingCountFromList,
+		missingDerivedByDiff: missingCountByDiff,
 	});
 
 	return stats;

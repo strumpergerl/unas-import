@@ -142,6 +142,11 @@ function compactRunForFirestore(run) {
 		.filter((i) => i.action === 'fail')
 		.map((i) => ({ sku: i.sku ?? null, error: i.error || 'Failed' }));
 
+	const missingAll = (run.missingInFeed || []).map((i) => ({
+		sku: i.sku ?? null,
+		error: i.error || '[Hiányzó termék]',
+	}));
+
 	const skipped = {
 		noKey: Number(run.counts?.skippedNoKey || 0),
 		notFound: Number(run.counts?.skippedNotFound || 0),
@@ -151,6 +156,18 @@ function compactRunForFirestore(run) {
 	};
 
 	// 2) Alap payload (mezők értékeit nem alakítjuk át)
+	const counts = { ...(run.counts || {}) };
+	const toFinite = (value) => {
+		const num = Number(value);
+		return Number.isFinite(num) ? num : null;
+	};
+	if (toFinite(counts.missingInFeed) == null) {
+		counts.missingInFeed = missingAll.length;
+	}
+	if (toFinite(counts.feedSupplier) == null && toFinite(run.counts?.total) != null) {
+		counts.feedSupplier = Number(run.counts.total);
+	}
+
 	let payload = {
 		id: run.id,
 		processId: run.processId ?? null,
@@ -164,20 +181,23 @@ function compactRunForFirestore(run) {
 		durationMs: run.durationMs ?? null,
 		dryRun: !!run.dryRun,
 		stages: run.stages || {},
-		counts: run.counts || {},
+		counts,
 		error: run.error ?? null,
 
 		// csak a kért listák:
 		modified: modifiedAll,
 		failed: failedAll,
+		missingInFeed: missingAll,
 		skipped,
 
 		// meta infó a vágásról (kezdetben nincs vágás)
 		meta: {
 			modifiedTotal: modifiedAll.length,
 			failedTotal: failedAll.length,
+			missingTotal: missingAll.length,
 			modifiedStored: modifiedAll.length,
 			failedStored: failedAll.length,
+			missingStored: missingAll.length,
 			truncated: false,
 		},
 	};
@@ -207,6 +227,19 @@ function compactRunForFirestore(run) {
 		while (keep >= 0) {
 			payload.failed = failedAll.slice(0, keep);
 			payload.meta.failedStored = payload.failed.length;
+			payload.meta.truncated = true;
+			if (fits(payload)) break;
+			keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+			if (keep <= 0) break;
+		}
+	}
+
+	if (!fits(payload)) {
+		// Végső lépésként a missing listát kurtítjuk
+		let keep = Math.min(missingAll.length, 500);
+		while (keep >= 0) {
+			payload.missingInFeed = missingAll.slice(0, keep);
+			payload.meta.missingStored = payload.missingInFeed.length;
 			payload.meta.truncated = true;
 			if (fits(payload)) break;
 			keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
@@ -252,6 +285,7 @@ async function runProcessById(processId) {
 			skippedNoKey: 0,
 			skippedNotFound: 0, // összesítő (a *_Count-ra fogjuk állítani)
 			skippedNotFoundCount: 0, // nyers számláló (opcionális, de hagyjuk meg)
+			missingInFeed: 0,
 		},
 		items: [],
 		error: null,
@@ -353,11 +387,41 @@ async function runProcessById(processId) {
 		? stats.modified.length
 		: 0;
 	run.counts.failed = Array.isArray(stats?.failed) ? stats.failed.length : 0;
-	run.counts.skippedNoChange = stats?.skippedNoChangeCount || 0;
-	run.counts.skippedNoKey = stats?.skippedNoKeyCount || 0;
-	run.counts.skippedNotFound = stats?.skippedNotFoundCount || 0;
-	run.counts.feedSupplier = stats?.feedSupplierCount ?? run.counts.total ?? 0;
-	run.counts.unasSupplier = stats?.unasSupplierCount ?? 0;
+
+	const toFinite = (value) => {
+		const num = Number(value);
+		return Number.isFinite(num) ? num : null;
+	};
+
+	const missingCountFromStats = toFinite(stats?.missingFromFeedCount);
+	const missingCountFromList = Array.isArray(stats?.missingFromFeed)
+		? stats.missingFromFeed.length
+		: 0;
+	const missingCountByDiff = (() => {
+		const unas = toFinite(stats?.unasSupplierCount);
+		const feed = toFinite(stats?.feedSupplierCount);
+		if (unas == null || feed == null) return 0;
+		return Math.max(0, unas - feed);
+	})();
+	run.counts.missingInFeed = Math.max(
+		missingCountFromStats ?? 0,
+		missingCountFromList,
+		missingCountByDiff
+	);
+
+	run.counts.skippedNoChange = toFinite(stats?.skippedNoChangeCount) ?? 0;
+	run.counts.skippedNoKey = toFinite(stats?.skippedNoKeyCount) ?? 0;
+	run.counts.skippedNotFound = toFinite(stats?.skippedNotFoundCount) ?? 0;
+
+	const feedSupplierCount = toFinite(stats?.feedSupplierCount);
+	run.counts.feedSupplier =
+		feedSupplierCount ?? toFinite(run.counts.total) ?? 0;
+
+	const unasSupplierCount = toFinite(stats?.unasSupplierCount);
+	run.counts.unasSupplier = unasSupplierCount ?? 0;
+	run.missingInFeed = Array.isArray(stats?.missingFromFeed)
+		? stats.missingFromFeed
+		: [];
 
 		run.items = [];
 
@@ -393,6 +457,13 @@ async function runProcessById(processId) {
 				error: f.error || f.message || f.reason || f.statusText || 'Failed',
 			});
 		}
+		for (const m of stats.missingFromFeed || []) {
+			run.items.push({
+				sku: m.sku ?? null,
+				action: 'missing',
+				error: m.error || m.message || '[Hiányzó termék]',
+			});
+		}
 
 		run.stages.downloadMs = t2 - t1;
 		run.stages.parseMs = t3 - t2;
@@ -414,11 +485,13 @@ async function runProcessById(processId) {
 						(run.durationMs % 60000) / 1000
 				  )} mp`
 				: '';
-			if (run.counts.failed > 0) {
+			const totalFailures =
+				(run.counts.failed || 0) + (run.counts.missingInFeed || 0);
+			if (totalFailures > 0) {
 				// Küldjünk emailt, ha van hibás tétel
 				const subject = `⚠️ Hibás tételek a szinkronban - ${procName}`;
 				const failedPreview = (run.items || [])
-					.filter((it) => it.action === 'fail')
+					.filter((it) => it.action === 'fail' || it.action === 'missing')
 					.slice(0, 5)
 					.map(
 						(it) =>
@@ -438,7 +511,7 @@ async function runProcessById(processId) {
 		<tr><td><b>Befejeződött:</b></td><td>${finished}</td></tr>
 		<tr><td><b>Időtartam:</b></td><td>${duration}</td></tr>
 		<tr><td><b>Módosított termékek:</b></td><td style="color:#1565c0;">${run.counts.modified}</td></tr>
-		<tr><td><b>Hibás termékek:</b></td><td style="color:#c62828;">${run.counts.failed}</td></tr>
+		<tr><td><b>Hibás termékek:</b></td><td style="color:#c62828;">${totalFailures}</td></tr>
 	</table>
 	<br>
 	${failedPreview ? `<h3>Példák:</h3><ul>${failedPreview}</ul>` : ''}

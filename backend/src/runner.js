@@ -146,6 +146,7 @@ function compactRunForFirestore(run) {
 		sku: i.sku ?? null,
 		error: i.error || '[Hiányzó termék]',
 	}));
+	const missingPreview = missingAll.slice(0, Math.min(10, missingAll.length));
 
 	const skipped = {
 		noKey: Number(run.counts?.skippedNoKey || 0),
@@ -188,6 +189,7 @@ function compactRunForFirestore(run) {
 		modified: modifiedAll,
 		failed: failedAll,
 		missingInFeed: missingAll,
+		missingPreview,
 		skipped,
 
 		// meta infó a vágásról (kezdetben nincs vágás)
@@ -236,14 +238,27 @@ function compactRunForFirestore(run) {
 
 	if (!fits(payload)) {
 		// Végső lépésként a missing listát kurtítjuk
+		const minMissingKeep = Math.min(missingAll.length, 10);
 		let keep = Math.min(missingAll.length, 500);
+		if (keep > 0 && keep < minMissingKeep) {
+			keep = minMissingKeep;
+		}
 		while (keep >= 0) {
 			payload.missingInFeed = missingAll.slice(0, keep);
 			payload.meta.missingStored = payload.missingInFeed.length;
 			payload.meta.truncated = true;
 			if (fits(payload)) break;
-			keep = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
-			if (keep <= 0) break;
+			if (keep === 0) break;
+			let next = keep > 50 ? Math.floor(keep * 0.8) : keep - 10;
+			if (minMissingKeep > 0 && next < minMissingKeep) {
+				if (keep === minMissingKeep) {
+					next = minMissingKeep - 1;
+				} else {
+					next = minMissingKeep;
+				}
+			}
+			if (next < 0) next = 0;
+			keep = next;
 		}
 	}
 
@@ -422,6 +437,7 @@ async function runProcessById(processId) {
 	run.missingInFeed = Array.isArray(stats?.missingFromFeed)
 		? stats.missingFromFeed
 		: [];
+	run.missingPreview = run.missingInFeed.slice(0, 10);
 
 		run.items = [];
 

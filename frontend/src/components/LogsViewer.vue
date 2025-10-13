@@ -133,7 +133,17 @@
 				error: src.error || 'Ismeretlen hiba',
 			});
 		};
+		const missingPreview = Array.isArray(run?.missingPreview)
+			? run.missingPreview
+			: [];
+		const missingSeen = new Set();
+
 		const pushMissing = (src) => {
+			const key = `${src?.sku ?? ''}|${
+				src?.error || src?.message || ''
+			}`.toLowerCase();
+			if (missingSeen.has(key)) return false;
+			missingSeen.add(key);
 			out.push({
 				status: 'missing',
 				sku: src.sku ?? '',
@@ -143,6 +153,7 @@
 					src.message ||
 					'[Megszűnt] A termék az UNAS-ban maradt, de nincs a feedben.',
 			});
+			return true;
 		};
 
 		let failAdded = 0;
@@ -158,19 +169,27 @@
 
 		let missingAdded = 0;
 		(run?.missingInFeed || []).forEach((m) => {
-			pushMissing(m);
-			missingAdded++;
+			if (pushMissing(m)) missingAdded++;
 		});
-		if (!missingAdded && legacyItems.length) {
+		const expectedMissing = missingCount(run);
+		const previewTarget = Math.min(expectedMissing, 10);
+
+		if (missingAdded < previewTarget && missingPreview.length) {
+			for (const m of missingPreview) {
+				if (missingAdded >= previewTarget) break;
+				if (pushMissing(m)) missingAdded++;
+			}
+		}
+
+		if (missingAdded < previewTarget && legacyItems.length) {
 			legacyItems
 				.filter((it) => it.action === 'missing')
 				.forEach((it) => {
-					pushMissing(it);
-					missingAdded++;
+					if (missingAdded >= previewTarget) return;
+					if (pushMissing(it)) missingAdded++;
 				});
 		}
 
-		const expectedMissing = missingCount(run);
 		if (expectedMissing > missingAdded) {
 			out.push({
 				status: 'missing-summary',
@@ -238,9 +257,9 @@
 	function rowStatus(it) {
 		if (it.status === 'fail') return { type: 'danger', label: 'Hibás' };
 		if (it.status === 'missing')
-			return { type: 'danger', label: 'Megszűnt (hiányzik a feedből)' };
+			return { type: 'danger', label: 'Megszűnt - hiányzik a feedből' };
 		if (it.status === 'missing-summary')
-			return { type: 'danger', label: 'Megszűnt – összegzés' };
+			return { type: 'danger', label: 'Megszűnt - összegzés' };
 		if (it.status === 'modify') return { type: 'success', label: 'Változott' };
 		if (it.error) return { type: 'danger', label: 'Hibás' };
 		return { type: 'info', label: 'Info' };

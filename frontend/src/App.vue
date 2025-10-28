@@ -82,6 +82,7 @@
 						:activeShopId="selectedShop || ''"
 						:show="showForm"
 						@save="saveProcess"
+						@cancel="showForm = false"
 					/>
 				</el-dialog>
 			</el-main>

@@ -34,6 +34,47 @@ function safeJson(res, status, payload) {
 	}
 }
 
+function parseFrequencyMs(freq) {
+	if (typeof freq !== 'string') return null;
+	const trimmed = freq.trim().toLowerCase();
+	if (!trimmed || trimmed === '0') return null;
+	const match = trimmed.match(/^([0-9]+)\s*([smhd])$/);
+	if (!match) return null;
+	const value = parseInt(match[1], 10);
+	const unit = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[match[2]];
+	if (!Number.isFinite(value) || value <= 0 || !unit) return null;
+	return value * unit;
+}
+
+function toDate(value) {
+	if (!value) return null;
+	if (value instanceof Date) return value;
+	if (typeof value === 'string') {
+		const parsed = new Date(value);
+		return Number.isFinite(parsed.getTime()) ? parsed : null;
+	}
+	if (typeof value.toDate === 'function') {
+		const parsed = value.toDate();
+		return parsed instanceof Date ? parsed : null;
+	}
+	return null;
+}
+
+function computeNextRunIso(anchorDate, intervalMs, now = new Date()) {
+	if (!anchorDate || !intervalMs) return null;
+	const anchorMs = anchorDate.getTime();
+	if (!Number.isFinite(anchorMs)) return null;
+	const nowMs = now.getTime();
+	if (!Number.isFinite(nowMs)) return null;
+	const firstRunMs = anchorMs + intervalMs;
+	if (nowMs <= firstRunMs) {
+		return new Date(firstRunMs).toISOString();
+	}
+	const diff = nowMs - anchorMs;
+	const steps = Math.floor(diff / intervalMs) + 1;
+	return new Date(anchorMs + steps * intervalMs).toISOString();
+}
+
 router.use('/inngest', express.raw({ type: '*/*' }), (req, res, next) => {
 	// Inngest-nek továbbadjuk
 	return inngestHandler(req, res, next);
@@ -456,7 +497,7 @@ router.post('/run', async (req, res) => {
 });
 
 // POST /api/config –  process létrehozása/frissítése
-// Mentéskor MINDIG referenceAt = most, nextRunAt = null (scheduler újraszámol)
+// A futtatási ütemezés a létrehozáskori horgonyhoz igazodik, szerkesztéskor nem állítjuk vissza
 router.post('/config', async (req, res) => {
 	try {
 		const p = req.body || {};
@@ -487,32 +528,32 @@ router.post('/config', async (req, res) => {
 			...data
 		} = p;
 
-		// nextRunAt automatikus számítása frequency alapján
-		let calcNextRunAt = null;
-		if (data.frequency && typeof data.frequency === 'string') {
-			const m = data.frequency
-				.trim()
-				.toLowerCase()
-				.match(/^([0-9]+)\s*([smhd])$/);
-			if (m) {
-				const n = parseInt(m[1], 10);
-				const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
-				if (n > 0 && mult) {
-					calcNextRunAt = new Date(now.getTime() + n * mult).toISOString();
-				}
-			}
-		}
-
 		const snap = await ref.get();
 		const isNew = !snap.exists;
+		const existingData = snap.exists ? snap.data() || {} : {};
+
+		const createdAtDate = isNew
+			? now
+			: toDate(existingData.createdAt) || now;
+		const createdAtIso = createdAtDate.toISOString();
+
+		const referenceDate =
+			toDate(existingData.referenceAt) ||
+			createdAtDate;
+		const referenceAtIso = referenceDate.toISOString();
+
+		const intervalMs = parseFrequencyMs(data.frequency);
+		const calcNextRunAt = intervalMs
+			? computeNextRunIso(referenceDate, intervalMs, now)
+			: null;
 
 		await ref.set(
 			{
 				...data,
-				referenceAt: nowIso, // <- HORGONY: mindig frissítjük
-				nextRunAt: calcNextRunAt, // <- automatikus következő futás
+				referenceAt: referenceAtIso,
+				nextRunAt: calcNextRunAt,
 				updatedAt: nowIso,
-				...(isNew ? { createdAt: nowIso } : {}),
+				...(isNew ? { createdAt: createdAtIso } : {}),
 			},
 			{ merge: true }
 		);
